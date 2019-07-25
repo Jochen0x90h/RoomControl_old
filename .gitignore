@@ -1,0 +1,7 @@
+# CMake
+build*/
+generated/
+
+# KiCad
+*.gbr
+*.drl
