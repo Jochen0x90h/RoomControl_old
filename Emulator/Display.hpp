@@ -6,14 +6,14 @@
 
 class Display : public Widget {
 public:
-	
+	static const int WIDTH = 128;
+	static const int HEIGHT = 64;
+
 	Display();
 	
 	~Display() override;
 	
-	void update();
-
-	Bitmap<128, 64> bitmap;
+	void update(Bitmap<WIDTH, HEIGHT> &bitmap);
 
 protected:
 
@@ -21,6 +21,6 @@ protected:
 	void resetState() override;
 
 	// texture buffer for copying bitmap contents into the texture
-	uint8_t buffer[128 * 64];
+	uint8_t buffer[WIDTH * HEIGHT];
 	GLuint texture;
 };

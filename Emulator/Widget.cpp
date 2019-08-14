@@ -3,16 +3,17 @@
 #include <stdexcept>
 
 
-Widget::Widget(const char* fragmentShaderSource) {
+Widget::Widget(const char* fragmentShaderSource)
+{
 	// create vertex shader
 	GLuint vertexShader = createShader(GL_VERTEX_SHADER,
 		"#version 330\n"
 		"uniform mat4 mat;\n"
 		"in vec2 position;\n"
-		"out vec2 uv;\n"
+		"out vec2 xy;\n"
 		"void main() {\n"
 		"	gl_Position = mat * vec4(position, 0.0, 1.0);\n"
-		"	uv = position;\n"
+		"	xy = position;\n"
 		"}\n");
 	
 	// create fragment shader
@@ -42,17 +43,25 @@ Widget::Widget(const char* fragmentShaderSource) {
 	glBindVertexArray(0);
 }
 
-Widget::~Widget() {
+Widget::~Widget()
+{
 }
 
-bool Widget::contains(float x, float y) {
+bool Widget::contains(float x, float y)
+{
 	return x >= this->x1 && x <= this->x2 && y >= this->y1 && y <= this->y2;
 }
 
-void Widget::touch(bool first, float x, float y) {
+void Widget::touch(bool first, float x, float y)
+{
 }
 
-void Widget::draw() {
+void Widget::release()
+{
+}
+
+void Widget::draw()
+{
 	// use program
 	glUseProgram(this->program);
 	
@@ -76,7 +85,8 @@ void Widget::draw() {
 	glBindVertexArray(0);
 }
 
-Widget::Matrix4x4 Widget::getMatrix() {
+Widget::Matrix4x4 Widget::getMatrix()
+{
 	Matrix4x4 mat = {{
 		(this->x2 - this->x1) * 2.0f, 0, 0, this->x1 * 2.0f - 1.0f,
 		0, (this->y2 - this->y1) * 2.0f, 0, this->y1 * 2.0f - 1.0f,
@@ -85,13 +95,16 @@ Widget::Matrix4x4 Widget::getMatrix() {
 	return mat;
 }
 
-void Widget::setState() {
+void Widget::setState()
+{
 }
 
-void Widget::resetState() {
+void Widget::resetState()
+{
 }
 
-GLuint Widget::createShader(GLenum type, const char* code) {
+GLuint Widget::createShader(GLenum type, const char* code)
+{
 	GLuint shader = glCreateShader(type);
 	glShaderSource(shader, 1, &code, NULL);
 	glCompileShader(shader);
@@ -113,17 +126,20 @@ GLuint Widget::createShader(GLenum type, const char* code) {
 	return shader;
 }
 
-GLuint Widget::getUniformLocation(const char *name) {
+GLuint Widget::getUniformLocation(const char *name)
+{
 	return glGetUniformLocation(this->program, name);
 }
 
-void Widget::setTextureIndex(const char *name, int index) {
+void Widget::setTextureIndex(const char *name, int index)
+{
 	glUseProgram(this->program);
 	glUniform1i(glGetUniformLocation(this->program, name), index);
 	glUseProgram(0);
 }
 
-Widget::Vertex const Widget::quad[6] = {
+Widget::Vertex const Widget::quad[6] =
+{
 	{0.0f, 0.0f},
 	{1.0f, 0.0f},
 	{1.0f, 1.0f},

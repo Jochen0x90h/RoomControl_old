@@ -10,19 +10,28 @@ public:
 
 	~Poti() override;
 	
-	uint16_t getValue() {return this->value >> 8;}
+	// quadrature encoder
+	uint16_t getValue() {return this->value >> 16;}
+
+	// switch
+	bool getState();
 
 	void touch(bool first, float x, float y) override;
 	
-	void draw() override;
-	
+	void release() override;
+		
 protected:
 	
 	void setState() override;
 	
 	GLuint valueLocation;
-	uint32_t value;
+	GLuint stateLocation;
 	
+	// current rotation and press state of the poti
+	uint32_t value = 0;
+	bool state = false;
+	
+	// current mouse location
 	float x;
 	float y;
 };

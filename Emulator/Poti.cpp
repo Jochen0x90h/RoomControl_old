@@ -3,31 +3,39 @@
 #include <cmath>
 
 
-Poti::Poti() : Widget(
+Poti::Poti()
+	: Widget(
 		"#version 330\n"
 		"uniform float value;\n"
-		"in vec2 uv;\n"
+		"uniform float state;\n"
+		"in vec2 xy;\n"
 		"out vec4 pixel;\n"
 		"void main() {\n"
-		"    vec2 d = uv - vec2(0.5, 0.5f);\n"
-		"    float angle = atan(d.y, d.x) + value;\n"
-		"    float length = sqrt(d.x * d.x + d.y * d.y);\n"
-		"    float limit = cos(angle * 24) * 0.02 + 0.48;\n"
-		"    pixel = length < limit ? vec4(0.7, 0.7, 0.7, 1) : vec4(0, 0, 0, 1);\n"
-		"}\n"), value(0) {
+			"vec2 a = xy - vec2(0.5, 0.5f);\n"
+			"float angle = atan(a.y, a.x) + value;\n"
+			"float length = sqrt(a.x * a.x + a.y * a.y);\n"
+			"float limit = cos(angle * 24) * 0.02 + 0.48;\n"
+			"pixel = length < limit ? (length < 0.1 ? vec4(state, state, state, 1) : vec4(0.7, 0.7, 0.7, 1)) : vec4(0, 0, 0, 1);\n"
+		"}\n")
+{
 	
 	// get uniform locations
-	this->valueLocation = getUniformLocation("value");	
+	this->valueLocation = getUniformLocation("value");
+	this->stateLocation = getUniformLocation("state");
 }
 
-Poti::~Poti() {
+Poti::~Poti()
+{
 }
 
-void Poti::touch(bool first, float x, float y) {
-	if (!first) {
-		float ax = x - 0.5f;
-		float ay = y - 0.5f;
-
+void Poti::touch(bool first, float x, float y)
+{
+	float ax = x - 0.5f;
+	float ay = y - 0.5f;
+	if (first) {
+		// check if button (inner circle) was hit
+		this->state = std::sqrt(ax * ax + ay * ay) < 0.1;
+	} else {
 		float bx = this->x - 0.5f;
 		float by = this->y - 0.5f;
 
@@ -38,11 +46,14 @@ void Poti::touch(bool first, float x, float y) {
 	this->y = y;
 }
 
-void Poti::draw() {
-	Widget::draw();
+void Poti::release()
+{
+	this->state = false;
 }
 
-void Poti::setState() {
+void Poti::setState()
+{
 	// set uniforms
 	glUniform1f(this->valueLocation, float(this->value & 0xffff) / 65536.0f * 2.0f * M_PI);
+	glUniform1f(this->stateLocation, this->state ? 1.0f : 0.0f);
 }

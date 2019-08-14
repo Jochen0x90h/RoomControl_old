@@ -19,17 +19,32 @@ public:
 
 	virtual ~Widget();
 
-	///
-	/// check if widget contains the given point
+	/**
+	 * check if widget contains the given point
+	 */
 	bool contains(float x, float y);
 
-	///
-	/// called when the widget is "touched" at given position (mouse is pressed/dragged)
+	/**
+	 * called when the widget is "touched" at given position (mouse is pressed/dragged)
+	 */
 	virtual void touch(bool first, float x, float y);
 
-	///
-	/// draw component
+	/**
+	 * called when the widget is released from a "touch"
+	 */
+	virtual void release();
+
+	/**
+	 * draw component
+	 */
 	virtual void draw();
+	
+	void setRect(float x, float y, float w, float h) {
+		this->x1 = x;
+		this->y1 = y;
+		this->x2 = x + w;
+		this->y2 = y + h;
+	}
 	
 protected:
 	GLuint getUniformLocation(const char *name);

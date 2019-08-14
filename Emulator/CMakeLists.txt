@@ -12,7 +12,13 @@ project(Emulator)
 set(CMAKE_CXX_STANDARD 14)
 
 find_package(Threads REQUIRED)
+
+# macOS: brew install glfw3
 find_package(glfw3 3.3 REQUIRED)
+
+# macOS: brew install boost
+find_package(Boost REQUIRED COMPONENTS system)
+
 
 set(SOURCES
 	main.cpp
@@ -25,6 +31,10 @@ set(SOURCES
 	Display.hpp
 	Poti.cpp
 	Poti.hpp
+	Light.cpp
+	Light.hpp
+	Blind.cpp
+	Blind.hpp
 )
 source_group(Sources FILES ${SOURCES})
 
@@ -47,10 +57,12 @@ include_directories(emulator
 	PRIVATE
 		.
 		../Display
+		${Boost_INCLUDE_DIR}
 )
 target_link_libraries(emulator
 	PRIVATE
 		glfw
 		${CMAKE_THREAD_LIBS_INIT}
 		${CMAKE_DL_LIBS}
+		${Boost_SYSTEM_LIBRARY}
 )
