@@ -4,7 +4,7 @@
 #include "Blind.hpp"
 #include "glad/glad.h"
 #include <GLFW/glfw3.h> // http://www.glfw.org/docs/latest/quick_guide.html
-#include <boost/asio/io_context.hpp>
+#include <boost/asio/io_service.hpp>
 #include <boost/asio/serial_port.hpp>
 #include <boost/asio/write.hpp>
 #include <iostream>
@@ -19,6 +19,13 @@
 namespace asio = boost::asio;
 using spb = asio::serial_port_base;
 using boost::system::error_code;
+
+
+inline int min(int x, int y) {return x < y ? x : y;}
+inline int max(int x, int y) {return x > y ? x : y;}
+inline int abs(int x) {return x > 0 ? x : -x;}
+inline int clamp(int x, int minval, int maxval) {return x < minval ? minval : (x > maxval ? maxval : x);}
+inline int limit(int x, int size) {return x < 0 ? 0 : (x >= size ? size - 1 : x);}
 
 
 static void errorCallback(int error, const char* description)
@@ -97,6 +104,104 @@ public:
 	Widget* activeWidget = nullptr;
 };
 
+static const char *hexTable = "0123456789ABCDEF";
+
+template <int L>
+class String {
+public:
+	String() {}
+	
+	template <typename T>
+	String &operator = (const T &value) {
+		this->index = 0;
+		return operator , (value);
+	}
+
+	template <typename T>
+	String &operator += (const T &value) {
+		return operator , (value);
+	}
+
+	String &operator , (char ch) {
+		if (this->index < L)
+			this->buffer[this->index++] = ch;
+		this->buffer[this->index] = 0;
+		return *this;
+	}
+
+/*
+	String &operator , (const char* s) {
+		while (*s != 0 && this->index < L) {
+			this->buffer[this->index++] = *(s++);
+		}
+		this->buffer[this->index] = 0;
+		return *this;
+	}
+*/
+
+	template <int N>
+	String &operator , (const char (&array)[N]) {
+		for (int i = 0; i < N && this->index < L; ++i) {
+			char ch = array[i];
+			if (ch == 0)
+				break;
+			this->buffer[this->index++] = ch;
+		}
+		this->buffer[this->index] = 0;
+		return *this;
+	}
+
+	String &operator , (int dec) {
+		char buffer[12];
+
+		unsigned int value = dec < 0 ? -dec : dec;
+
+		char * b = buffer + 11;
+		*b = 0;
+		do {
+			--b;
+			*b = '0' + value % 10;
+			value /= 10;
+		} while (value > 0);
+
+		if (dec < 0) {
+			--b;
+			*b = '-';
+		}
+
+		// append the number
+		while (*b != 0 && this->index < L) {
+			this->buffer[this->index++] = *(b++);
+		}
+		this->buffer[this->index] = 0;
+		return *this;
+	}
+
+	String &operator , (uint8_t hex) {
+		if (this->index < L)
+			this->buffer[this->index++] = hexTable[hex >> 4];
+		if (this->index < L)
+			this->buffer[this->index++] = hexTable[hex & 0xf];
+		this->buffer[this->index] = 0;
+		return *this;
+	}
+
+	String &operator , (uint32_t hex) {
+		for (int i = 28; i >= 0 && this->index < L; i -= 4) {
+			this->buffer[this->index++] = hexTable[(hex >> i) & 0xf];
+		}
+		this->buffer[this->index] = 0;
+		return *this;
+	}
+
+	operator const char * () {
+		return this->buffer;
+	}
+protected:
+	char buffer[L + 1];
+	int index = 0;
+};
+
 class Serial {
 public:
 	using Device = const std::string&;
@@ -161,7 +266,7 @@ public:
 
 protected:
 
-	asio::io_context context;
+	asio::io_service context;
 	asio::serial_port tty;
 	
 	int sentCount = 0;
@@ -189,18 +294,470 @@ protected:
 Timer timer;
 
 
-inline int abs(int x) {return x > 0 ? x : -x;}
 
-class Actors {
+
+
+class Flash {
 public:
-	// number of actors
-	static const int ACTOR_COUNT = 8;
+	static const int PAGE_SIZE = 1024;
+	static const int WRITE_ALIGN = 2;
 
-	Actors() {
+	Flash(int pageCount) {
+		this->data = new uint8_t[pageCount * PAGE_SIZE];
+		std::fill(this->data, this->data + pageCount * PAGE_SIZE, 0xff);
+	}
+
+	void *getAddress(int pageIndex, int offset = 0) {
+		return this->data + pageIndex * PAGE_SIZE + offset;
+	}
+	
+	void erase(int pageIndex) {
+		uint8_t *page = this->data + pageIndex * PAGE_SIZE;
+		std::fill(page, page + PAGE_SIZE, 0xff);
+	}
+	
+	void write(int pageIndex, int offset, const void * data, int length) {
+		uint8_t *page = this->data + pageIndex * PAGE_SIZE;
+		const uint8_t *d = (uint8_t*)data;
+		std::copy(d, d + length, page + offset);
+	}
+	
+protected:
+
+	uint8_t *data;
+};
+Flash flash(16);
+
+
+template <typename ELEMENT, int COUNT>
+class Storage {
+public:
+	static const int PAGE_SHIFT = 8;
+	static const int INDEX_MASK = 0xff;
+
+	// index update that tracks changes to the index such as insert and erase
+	struct Update {
+		uint16_t index;
+		uint16_t index2;
+	};
+
+	// index update size and number of index updates that fit into a page, taking alignment of flash into account
+	static const int UPDATE_SIZE = (sizeof(Update) + Flash::WRITE_ALIGN - 1) & ~(Flash::WRITE_ALIGN - 1);
+	static const int PAGE_UPDATE_COUNT = Flash::PAGE_SIZE / UPDATE_SIZE;
+
+	// element size and number of elements that fit into a page, taking alignment of flash into account
+	static const int ELEMENT_SIZE = (sizeof(ELEMENT) + Flash::WRITE_ALIGN - 1) & ~(Flash::WRITE_ALIGN - 1);
+	static const int PAGE_ELEMENT_COUNT = Flash::PAGE_SIZE / ELEMENT_SIZE;
+
+	// number of flash pages to store elements. Have at least 1.5 free pages
+	static const int ELEMENT_PAGE_COUNT = (COUNT + (PAGE_ELEMENT_COUNT * 5) / 2) / PAGE_ELEMENT_COUNT;
+
+
+	int init(int pageStart) {
+		this->indexPageStart = pageStart;
+		this->elementPageStart = pageStart + 2;
+		
+		// determine which index page is current
+		uint16_t *indexPage1 = (uint16_t*)flash.getAddress(this->indexPageStart);
+		uint16_t *indexPage2 = (uint16_t*)flash.getAddress(this->indexPageStart + 1);
+		int last1 = -1;
+		int last2 = -1;
+		for (int i = 0; i < Flash::PAGE_SIZE / 2; ++i) {
+			if (indexPage1[i] != 0xffff)
+				last1 = i;
+			if (indexPage2[i] != 0xffff)
+				last2 = i;
+		}
+		if (last1 >= last2) {
+			this->indexIndex = 0;
+			if (last2 != -1) {
+				// erase other page if it is not empty (just to be sure, should always be empty)
+				flash.erase(this->indexPageStart + 1);
+			}
+		} else {
+			this->indexIndex = 1 << PAGE_SHIFT;
+			if (last1 != -1) {
+				// erase other page if it is not empty (just to be sure, should always be empty)
+				flash.erase(this->indexPageStart);
+			}
+		}
+
+		// copy indices from beginning of page
+		uint8_t *indexPage = (uint8_t*)flash.getAddress(this->indexPageStart + (this->indexIndex >> PAGE_SHIFT));
+		uint16_t *elementIndices = (uint16_t*)indexPage;
+		int ii = 0;
+		while (ii < COUNT) {
+			uint16_t elementIndex = this->elementIndices[ii] = elementIndices[ii];
+			++ii;
+			if (elementIndex == 0xffff)
+				break;
+		}
+		
+		// apply index updates
+		int updateStart = (ii * 2 + UPDATE_SIZE - 1) / UPDATE_SIZE;
+		for (int updateIndex = updateStart; updateIndex < PAGE_UPDATE_COUNT; ++updateIndex) {
+			Update *update = (Update*)(indexPage + updateIndex * UPDATE_SIZE);
+			if (update->index < COUNT) {
+				// set element index
+				this->elementIndices[update->index] = update->index2;
+			} else if (update->index < COUNT * 2) {
+				if (update->index2 < COUNT) {
+					// move element
+					
+					//!
+				} else {
+					// delete element
+					for (int i = update->index + 1; i < COUNT; ++i) {
+						this->elementIndices[i - 1] = this->elementIndices[i];
+					}
+					this->elementIndices[COUNT - 1] = 0xffff;
+				}
+			} else if (update->index == COUNT * 2) {
+				// move element page
+				int	srcPageIndex = update->index2;
+				int dstPageIndex = (srcPageIndex == 0 ? ELEMENT_PAGE_COUNT : srcPageIndex) - 1;
+				int newIndex = 0;
+				for (int i = 0; i < COUNT; ++i) {
+					int pageIndex = this->elementIndices[i] >> PAGE_SHIFT;
+					if (pageIndex == srcPageIndex) {
+						this->elementIndices[i] = (dstPageIndex << PAGE_SHIFT) + newIndex;
+						++newIndex;
+					}
+				}
+				
+			} else {
+				// entry is invalid: end of updates
+				this->indexIndex |= updateIndex;
+				goto indexNotFull;
+			}
+		}
+		moveIndex();
+indexNotFull:
+		
+		// determine count
+		int count;
+		for (count = 0; count < COUNT && this->elementIndices[count] != 0xffff; ++count);
+		this->count = count;
+		
+
+		// determine which element page is current
+		for (int i = 0; i < ELEMENT_PAGE_COUNT; ++i) {
+			if (isEmpty(i)) {
+				// found empty page: use page before as current page
+				this->elementIndex = ((i == 0 ? ELEMENT_PAGE_COUNT : i) - 1) << PAGE_SHIFT;
+				break;
+			}
+		}
+
+		// determine next free element index in current element page
+		int last = getLastIndex(this->elementIndex >> PAGE_SHIFT);
+		
+		// check if element page is full
+		if (last >= PAGE_ELEMENT_COUNT - 1)
+			moveElements();
+		else
+			this->elementIndex |= last + 1;
+	
+		return 2 + ELEMENT_PAGE_COUNT;
+	}
+	
+	int getCount() const {
+		return this->count;
+	}
+	
+	const ELEMENT &get(int index) const {
+		uint16_t elementIndex = this->elementIndices[index];
+		int pageIndex = this->elementPageStart + (elementIndex >> PAGE_SHIFT);
+		void * entry = flash.getAddress(pageIndex, (elementIndex & INDEX_MASK) * ELEMENT_SIZE);
+		return *(ELEMENT*)entry;
+	}
+	
+	void write(int index, const ELEMENT &element) {
+		if (index == this->count && index < COUNT)
+			this->count = index + 1;
+		if (index < this->count) {
+			// write new entry at current free position
+			{
+				int indexPage = this->elementPageStart + (this->elementIndex >> PAGE_SHIFT);
+				flash.write(indexPage, (this->elementIndex & INDEX_MASK) * ELEMENT_SIZE, &element, sizeof(ELEMENT));
+			}
+
+			// write index update
+			{
+				int indexPage = this->indexPageStart + (this->indexIndex >> PAGE_SHIFT);
+				Update u{uint16_t(index), this->elementIndex};
+				flash.write(indexPage, (this->indexIndex & INDEX_MASK) * UPDATE_SIZE, &u, sizeof(Update));
+			}
+
+			// increment index index and check if page is full
+			if ((this->indexIndex & INDEX_MASK) >= PAGE_UPDATE_COUNT - 1) {
+				moveIndex();
+			} else {
+				++this->indexIndex;
+			}
+
+			// set element index
+			this->elementIndices[index] = this->elementIndex;
+
+			// increment element index and check if page is full
+			if ((this->elementIndex & INDEX_MASK) >= PAGE_ELEMENT_COUNT - 1) {
+				moveElements();
+			} else {
+				++this->elementIndex;
+			}
+		}
+	}
+	
+	void move(int index, int newIndex) {
+	
+	}
+	
+	void erase(int index) {
+		if (index < this->count) {
+			for (int i = index + 1; i < this->count; ++i) {
+				this->elementIndices[i - 1] =  this->elementIndices[i];
+			}
+			--this->count;
+
+			// write index update
+			{
+				int pageIndex = this->indexPageStart + (this->indexIndex >> PAGE_SHIFT);
+				Update u{uint16_t(index), COUNT};
+				flash.write(pageIndex, (this->indexIndex & INDEX_MASK) * UPDATE_SIZE, &u, sizeof(Update));
+			}
+
+			// increment index index and check if page is full
+			if ((this->indexIndex & INDEX_MASK) >= PAGE_UPDATE_COUNT - 1) {
+				moveIndex();
+			} else {
+				++this->indexIndex;
+			}
+		}
+	}
+	
+protected:
+
+	bool isEmpty(int elementPageIndex) {
+		// check if page is referenced by an element
+		for (int i = 0; i < this->count; ++i) {
+			if ((this->elementIndices[i] >> PAGE_SHIFT) == elementPageIndex)
+				return false;
+		}
+		
+		// no: check if element page is actually empty (just to be sure, should always be empty)
+		uint32_t *page = (uint32_t*)flash.getAddress(this->elementPageStart + elementPageIndex);
+		for (int i = 0; i < Flash::PAGE_SIZE / 4; ++i) {
+			if (page[i] != 0xffffffff) {
+				flash.erase(this->elementPageStart + elementPageIndex);
+				break;
+			}
+		}
+		return true;
+	}
+
+	int getLastIndex(int elementPageIndex) {
+		// check if page is referenced by an element
+		int last = -1;
+		for (int i = 0; i < this->count; ++i) {
+			int elementIndex = this->elementIndices[i];
+			if ((elementIndex >> PAGE_SHIFT) == elementPageIndex)
+				last = max(last, elementIndex & INDEX_MASK);
+		}
+		return last;
+	}
+
+	void moveIndex() {
+		int srcIndex = (this->indexIndex >> PAGE_SHIFT);
+		int dstIndex = srcIndex ^ 1;
+		
+		// write element indices to destination page
+		flash.write(this->indexPageStart + dstIndex, 0, this->elementIndices, COUNT * 2);
+		
+		// erase source page
+		flash.erase(this->indexPageStart + srcIndex);
+	
+		// set current pate index
+		int ii = (min(this->count + 1, COUNT) * 2 + UPDATE_SIZE - 1) / UPDATE_SIZE;
+		this->indexIndex = (dstIndex << PAGE_SHIFT) | ii;
+	}
+	
+	void moveElements() {
+		int pageIndex = (this->elementIndex >> PAGE_SHIFT);
+		int dstPageIndex = pageIndex == ELEMENT_PAGE_COUNT ? 0 : pageIndex + 1;
+		int srcPageIndex = dstPageIndex == ELEMENT_PAGE_COUNT ? 0 : dstPageIndex + 1;
+		
+		int dstPage = this->elementPageStart + dstPageIndex;
+		int srcPage = this->elementPageStart + srcPageIndex;
+		uint8_t *srcData = (uint8_t*)flash.getAddress(srcPage);
+		
+		// copy elements from source to destination page
+		int newElementIndex = 0;
+		for (int i = 0; i < this->count; ++i) {
+			int elementIndex = this->elementIndices[i];
+			if ((elementIndex >> PAGE_SHIFT) == srcPageIndex) {
+				flash.write(dstPage, newElementIndex * ELEMENT_SIZE,
+					srcData + (elementIndex & INDEX_MASK) * ELEMENT_SIZE,
+					sizeof(ELEMENT));
+				++newElementIndex;
+			}
+		}
+	
+		// write index update
+		{
+			int indexPage = this->indexPageStart + (this->indexIndex >> PAGE_SHIFT);
+			Update u{COUNT * 2, uint16_t(srcPageIndex)};
+			flash.write(indexPage, (this->indexIndex & INDEX_MASK) * UPDATE_SIZE, &u, sizeof(Update));
+		}
+
+		// increment index index and check if page is full
+		if ((this->indexIndex & INDEX_MASK) >= PAGE_UPDATE_COUNT - 1) {
+			moveIndex();
+		} else {
+			++this->indexIndex;
+		}
+
+		// erase source page
+		flash.erase(this->indexPageStart + srcPageIndex);
+
+
+		// set current pate index
+		this->elementIndex = dstPageIndex << PAGE_SHIFT;
+	}
+	
+	int indexPageStart;
+	int elementPageStart;
+
+	uint16_t elementIndices[COUNT];
+	uint16_t count;
+	
+	// current write indices
+	uint16_t indexIndex;
+	uint16_t elementIndex;
+};
+
+
+static const int ACTOR_COUNT = 8;
+static const int SCENARIO_COUNT = 64;
+static const int BUTTON_COUNT = 64;
+static const int TIMER_COUNT = 64;
+
+struct Actor {
+	enum class Type : uint8_t {
+		SWITCH,
+		BLIND
+	};
+
+	char name[16];
+	
+	// initial value of actor (0-100)
+	uint8_t value;
+	
+	// type of actor (switch, blind)
+	Type type;
+	
+	// speed to reach target value
+	uint16_t speed;
+	
+	// output index
+	uint8_t outputIndex;
+};
+
+struct Button {
+	// maximum number of scenarios per button that can be cycled
+	static const int SCENARIO_COUNT = 8;
+
+	// enocean id of button
+	uint32_t id;
+	
+	// button state
+	uint8_t state;
+	
+	// ids of scenarios that are cycled when pressing the button
+	uint8_t scenarios[SCENARIO_COUNT];
+
+	int getScenarioCount() const {
+		for (int i = 0; i < SCENARIO_COUNT; ++i) {
+			if (this->scenarios[i] == 0xff)
+				return i;
+		}
+		return SCENARIO_COUNT;
+	}
+	
+	int getScenario(int index) const {
+		return this->scenarios[index];
+	}
+};
+
+struct Scenario {
+	uint8_t id;
+	char name[16];
+	uint8_t actorValues[ACTOR_COUNT];
+};
+
+Storage<Actor, ACTOR_COUNT> actors;
+Storage<Scenario, SCENARIO_COUNT> scenarios;
+Storage<Button, BUTTON_COUNT> buttons;
+//timers
+
+
+Actor actorsData[] = {
+	{"Light1", 0, Actor::Type::SWITCH, 0, 0},
+	{"Light2", 0, Actor::Type::SWITCH, 0, 1},
+	{"Light3", 0, Actor::Type::SWITCH, 0, 2},
+	{"Light4", 0, Actor::Type::SWITCH, 0, 3},
+	{"Blind1", 0, Actor::Type::BLIND, 2000, 4},
+	{"Blind2", 0, Actor::Type::BLIND, 2000, 6},
+	{"Blind3", 0, Actor::Type::BLIND, 2000, 8},
+	{"Blind4", 0, Actor::Type::BLIND, 2000, 10},
+};
+
+Scenario scenariosData[] = {
+	{0, "Light1 On", {100, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}},
+	{1, "Light1 Off", {0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}},
+	{2, "Light2 On", {0xff, 100, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}},
+	{3, "Light2 Dim", {0xff, 50, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}},
+	{4, "Light2 Off", {0xff, 0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}},
+	{5, "Blind1 Up", {0xff, 0xff, 0xff, 0xff, 100, 0xff, 0xff, 0xff}},
+	{6, "Blind1 Down", {0xff, 0xff, 0xff, 0xff, 0, 0xff, 0xff, 0xff}},
+	{7, "Blind2 Up", {0xff, 0xff, 0xff, 0xff, 0xff, 100, 0xff, 0xff}},
+	{8, "Blind2 Mid", {0xff, 0xff, 0xff, 0xff, 0xff, 50, 0xff, 0xff}},
+	{9, "Blind2 Down", {0xff, 0xff, 0xff, 0xff, 0xff, 0, 0xff, 0xff}},
+};
+
+Button buttonsData[] = {
+	{0xfef3ac9b, 0x10, {0, 1, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}}, // bottom left
+	{0xfef3ac9b, 0x30, {2, 3, 4, 0xff, 0xff, 0xff, 0xff, 0xff}}, // top left
+	{0xfef3ac9b, 0x50, {5, 6, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}}, // bottom right
+	{0xfef3ac9b, 0x70, {7, 8, 9, 0xff, 0xff, 0xff, 0xff, 0xff}}, // top right
+};
+
+const Button *findButton(uint32_t id, uint8_t state) {
+	for (int i = 0; i < buttons.getCount(); ++i) {
+		const Button &button = buttons.get(i);
+		if (button.id == id && button.state == state)
+			return &button;
+	}
+	return nullptr;
+}
+
+const Scenario *findScenario(uint8_t id) {
+	for (int i = 0; i < scenarios.getCount(); ++i) {
+		const Scenario &scenario = scenarios.get(i);
+		if (scenario.id == id)
+			return &scenario;
+	}
+	return nullptr;
+}
+
+
+class ActorValues {
+public:
+
+	ActorValues() {
 		for (int i = 0; i < ACTOR_COUNT; ++i) {
-			this->speed[i] = 65536;
+			this->speed[i] = 0;
 			this->targetValues[i] = 0;
-			this->currentValues[i] = 0;
+			this->values[i] = 0;
 			this->running[i] = false;
 		}
 	}
@@ -213,11 +770,19 @@ public:
 	 * Set scenario to actors with a dim level in the range 0 - 100 for each actor
 	 * @param scenario array of dim levels, one for each actor
 	 */
-	void setValues(const uint8_t *values) {
+	void set(const uint8_t *values) {
 		for (int i = 0; i < ACTOR_COUNT; ++i) {
-			if (values[i] <= 100) {
-				this->targetValues[i] = values[i] << 16;
-				this->running[i] = true;
+			int value = values[i];
+			if (value <= 100) {
+				if (this->speed[i] == 0) {
+					// set value immediately
+					this->targetValues[i] = this->values[i] = value << 16;
+				} else {
+					// interpolate to value
+					this->values[i] = clamp(this->values[i], 0, 100 << 16);
+					this->targetValues[i] = (value == 0 ? -2 : (value == 100 ? 102 : value)) << 16;
+					this->running[i] = true;
+				}
 			}
 		}
 	}
@@ -225,8 +790,8 @@ public:
 	/**
 	 * Get the current value of an actor
 	 */
-	uint8_t getCurrentValue(int i) {
-		return this->currentValues[i] >> 16;
+	uint8_t get(int index) {
+		return clamp(this->values[index] >> 16, 0, 100);
 	}
 
 	/**
@@ -249,7 +814,7 @@ public:
 		int similarity = 0;
 		for (int i = 0; i < ACTOR_COUNT; ++i) {
 			if (values[i] <= 100) {
-				similarity += abs((this->targetValues[i] >> 16) - values[i]);
+				similarity += abs(clamp(this->targetValues[i] >> 16, 0, 100) - values[i]);
 			}
 		}
 		return similarity;
@@ -266,14 +831,16 @@ public:
 			if (this->running[i]) {
 				int step = d * this->speed[i];
 				int targetValue = this->targetValues[i];
-				int &currentValue = this->currentValues[i];
-				if (targetValue > currentValue) {
+				int &currentValue = this->values[i];
+				if (currentValue < targetValue) {
+					// up
 					currentValue += step;
 					if (currentValue >= targetValue) {
 						currentValue = targetValue;
 						this->running[i] = false;
 					}
 				} else {
+					// down
 					currentValue -= step;
 					if (currentValue <= targetValue) {
 						currentValue = targetValue;
@@ -286,6 +853,25 @@ public:
 		this->time = time;
 	}
 
+	int getSwitchState(int index) {
+		return this->values[index] >= (50 << 16) ? 1 : 0;
+	}
+	
+	int getBlindState(int index) {
+		if (this->running[index]) {
+			int targetValue = this->targetValues[index];
+			int currentValue = this->values[index];
+			if (currentValue < targetValue) {
+				// up
+				return 2;
+			} else if (currentValue > targetValue) {
+				// down
+				return 1;
+			}
+		}
+		return 0;
+	}
+
 protected:
 
 	int speed[ACTOR_COUNT];
@@ -294,126 +880,440 @@ protected:
 	int targetValues[ACTOR_COUNT];
 	
 	// current states of actors (simulated, not measured)
-	int currentValues[ACTOR_COUNT];
+	int values[ACTOR_COUNT];
 
 	bool running[ACTOR_COUNT];
 	
 	// last time for determining a time step
 	uint32_t time = 0;
 };
-Actors actors;
-
-
-class Configuration {
-public:
-
-	// maximum number of scenarios per switch that can be cycled
-	static const int SCENARIO_COUNT = 8;
-
-
-	/**
-	 * Find the scenarios for the node and state (switch)
-	 */
-	const uint8_t *findScenarios(uint32_t nodeId, uint8_t state) {
-		static const uint8_t scenarios[][SCENARIO_COUNT] = {
-			{0, 1, 0xff}, // lights
-			{2, 3, 4, 0xff},
-			{5, 6, 0xff}, // blinds
-			{7, 8, 9, 0xff}
-		};
-		if (nodeId == 0xfef3ac9b) {
-			if (state == 0x10) // bottom left
-				return scenarios[0];
-			if (state == 0x30) // top left
-				return scenarios[1];
-			if (state == 0x50) // bottom right
-				return scenarios[2];
-			if (state == 0x70) // top right
-				return scenarios[3];
-		}
-		return nullptr;
-	}
-
-	struct Scenario {
-		char name[16];
-		uint8_t actorValues[Actors::ACTOR_COUNT];
-	};
-	
-
-	/**
-	 * Get the names for a scenario
-	 */
-	const char *getScenarioName(uint8_t scenario) {
-		return scenarios[scenario].name;
-	}
-
-	/**
-	 * Get the actor states for a scenario
-	 */
-	const uint8_t *getActorValues(int scenario) {
-		return scenarios[scenario].actorValues;
-	}
-	
-	static const Scenario scenarios[10];
-};
-const Configuration::Scenario Configuration::scenarios[10] = {
-	{"Light1 On", {100, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}},
-	{"Light1 Off", {0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}},
-	{"Light2 On", {0xff, 100, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}},
-	{"Light2 Dim", {0xff, 50, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}},
-	{"Light2 Off", {0xff, 0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}},
-	{"Blind1 Up", {0xff, 0xff, 0xff, 0xff, 100, 0xff, 0xff, 0xff}},
-	{"Blind1 Down", {0xff, 0xff, 0xff, 0xff, 0, 0xff, 0xff, 0xff}},
-	{"Blind2 Up", {0xff, 0xff, 0xff, 0xff, 0xff, 100, 0xff, 0xff}},
-	{"Blind2 Mid", {0xff, 0xff, 0xff, 0xff, 0xff, 50, 0xff, 0xff}},
-	{"Blind2 Down", {0xff, 0xff, 0xff, 0xff, 0xff, 0, 0xff, 0xff}},
-};
-Configuration configuration;
+ActorValues actorValues;
 
 
 // menu
 class Menu {
 public:
+	/*
+		Lights
+			Light1
+				Name: Light1
+				<id> <state>: (push-button | on | off)
+		Blinds
+			Blind1
+				Name: Blind1
+				<id> <state>: (push-button | up | down)
+		Scenarios
+	 		Scenario1
+	 			Name: Scenario1
+				Light1: (- | off | on | 1-99)
+				Light2: (- | off | on | 1-99)
+				Blind1: (- | off | on | 1-99)
+				Blind2: (- | off | on | 1-99)
+				Exit
+	 		Scenario2
+	 		New
+			Exit
+	 	Buttons
+	 		<name> <id/state>
+	 			Name: <name>
+	 			Button: <id/state>
+				Scenario1: <scenario>
+				New Scenario
+	 			Delete Button
+				Exit
+	 		New button
+			Exit
+		Timers
+			<name> <time>
+				Name: <name>
+				Time: <time>
+				Scenario1: <scenario>
+				Add Scenario
+	 			Delete Timer
+				Exit
+			New
+			Exit
+	*/
 
+
+	// menu state
 	enum State {
 		IDLE,
-		EVENT,
+		TOAST,
+		MAIN,
+		ACTORS,
+		SCENARIOS,
+		EDIT_SCENARIO,
+		ADD_SCENARIO,
+		BUTTONS,
+		EDIT_BUTTON,
+		ADD_BUTTON,
+		TIMERS,
+		SELECT_SCENARIO
 	};
 
+	State getState() {return this->state;}
 
-	void show() {
-		bitmap.clear();
+	void update(int delta, bool press) {
 		
+		if (press) {
+			switch (this->state) {
+			case IDLE:
+				push(MAIN);
+				break;
+			case MAIN:
+				if (this->selected == 0)
+					push(ACTORS);
+				else if (this->selected == 1)
+					push(SCENARIOS);
+				else if (this->selected == 2)
+					push(BUTTONS);
+				else if (this->selected == 3)
+					push(TIMERS);
+				else {
+					// exit
+					pop();
+				}
+				break;
+			case ACTORS:
+				{
+					int actorCount = actors.getCount();
+					if (this->selected < actorCount) {
+					
+					} else {
+						// exit
+						pop();
+					}
+				}
+				break;
+			case SCENARIOS:
+				{
+					int scenarioCount = scenarios.getCount();
+					if (this->selected < scenarioCount) {
+						// edit scenario
+						this->scenario = scenarios.get(this->selected);
+						push(EDIT_SCENARIO);
+					} else if (this->selected == scenarioCount) {
+						// new scenario
+						
+					} else {
+						// exit
+						pop();
+					}
+				}
+				break;
+			case EDIT_SCENARIO:
+			case ADD_SCENARIO:
+				{
+					const int actorCount = actors.getCount();
+					if (this->selected == 0) {
+						// edit name
+					} else if (this->selected < 1 + actorCount) {
+						// edit value
+					} else {
+						// exit
+						pop();
+					}
+				}
+				break;
+			case BUTTONS:
+				{
+					int buttonCount = buttons.getCount();
+					if (this->selected < buttonCount) {
+						// edit button
+						this->button = buttons.get(this->selected);
+						push(EDIT_BUTTON);
+					} else if (this->selected == buttonCount) {
+						// new button
+						this->button.id = 0;
+						this->button.state = 0;
+						for (int i = 0; i < Button::SCENARIO_COUNT; ++i)
+							this->button.scenarios[i] = 0xff;
+						push(ADD_BUTTON);
+					} else {
+						// exit
+						pop();
+					}
+				}
+				break;
+			case EDIT_BUTTON:
+			case ADD_BUTTON:
+				{
+					int scenarioCount = this->button.getScenarioCount();
+					if (this->selected >= 1 && this->selected < 1 + scenarioCount) {
+						// select scenario
+						int scenarioIndex = button.scenarios[this->selected - 1];
+						push(SELECT_SCENARIO);
+						this->selected = scenarioIndex;
+					} else if (this->selected == 1 + scenarioCount) {
+						// add scenario
+						push(SELECT_SCENARIO);
+						this->selected = scenarioCount == 0 ? 0 : button.scenarios[scenarioCount - 1];
+					} else if (this->selected == 1 + scenarioCount + 1) {
+						// delete button
+						buttons.erase(getThisIndex());
+						pop();
+					} else {
+						// exit
+						buttons.write(getThisIndex(), this->button);
+						pop();
+					}
+				}
+				break;
+			case SELECT_SCENARIO:
+				{
+					int scenarioIndex = this->selected;
+					pop();
+					if (scenarioIndex < scenarios.getCount()) {//configuration.getScenarioCount()) {
+						// set new scenario index to button
+						button.scenarios[this->selected - 1] = scenarioIndex;
+						++this->selected;
+					} else {
+						// remove scenario from button
+						for (int i = this->selected - 1; i < Button::SCENARIO_COUNT - 1; ++i) {
+							button.scenarios[i] = button.scenarios[i + 1];
+						}
+						button.scenarios[Button::SCENARIO_COUNT - 1] = 0xff;
+					}
+				}
+				break;
+			case TIMERS:
+				break;
+			}
+		}
 
+		// draw menu
+		bitmap.clear();
 		switch (this->state) {
 		case IDLE:
 			break;
-		case EVENT:
+		case TOAST:
 			{
-				const char *name = this->event;
+				const char *name = this->string;
 				int y = 10;
 				int len = tahoma_8pt.calcWidth(name);
 				bitmap.drawText((bitmap.WIDTH - len) >> 1, y, tahoma_8pt, name, Mode::SET);
-			
-				if (timer.getValue() - this->eventTime > 1000)
+
+				if (timer.getValue() - this->toastTime > 1000)
 					this->state = IDLE;
+			}
+			break;
+		case MAIN:
+			{
+				menu(delta, 5);
+				entry("Actors");
+				entry("Scenarios");
+				entry("Buttons");
+				entry("Timers");
+				entry("Exit");
+			}
+			break;
+		case ACTORS:
+			{
+				int actorCount = actors.getCount();
+				menu(delta, actorCount + 1);
+				for (int i = 0; i < actorCount; ++i) {
+					const Actor & actor = actors.get(i);
+					this->string = actor.name;
+					entry(this->string);
+				}
+				entry("Exit");
+			}
+			break;
+		case SCENARIOS:
+			{
+				int scenarioCount = scenarios.getCount();
+
+				menu(delta, scenarioCount + 2);
+				for (int i = 0; i < scenarioCount; ++i) {
+					const Scenario &scenario = scenarios.get(i);
+					this->string = scenario.name;
+					entry(this->string);
+				}
+				entry("Add Scenario");
+				entry("Exit");
+			}
+			break;
+		case EDIT_SCENARIO:
+		case ADD_SCENARIO:
+			{
+				const int actorCount = actors.getCount();
+				
+				menu(delta, 1 + actorCount + 1);
+				this->string = "Scenario: ", this->scenario.name;
+				entry(this->string);
+
+				// actors
+				for (int i = 0; i < actorCount; ++i) {
+					const Actor &actor = actors.get(i);
+					this->string = actor.name, ": ";
+					int value = this->scenario.actorValues[i];
+					if (value <= 100)
+						this->string += value;
+					else
+						this->string += " -";
+					entry(this->string);
+				}
+				entry("Exit");
+			}
+			break;
+		case BUTTONS:
+			{
+				int buttonCount = buttons.getCount();
+				
+				menu(delta, buttonCount + 2);
+				for (int i = 0; i < buttonCount; ++i) {
+					const Button &button = buttons.get(i);
+					
+					this->string = button.id, ':', button.state;
+					entry(this->string);
+				}
+				entry("Add Button");
+				entry("Exit");
+			}
+			break;
+		case EDIT_BUTTON:
+		case ADD_BUTTON:
+			{
+				int scenarioCount = this->button.getScenarioCount();
+
+				menu(delta, 1 + scenarioCount + 3);
+				this->string = "Button: ", this->button.id, ':', this->button.state;
+				entry(this->string);
+				
+				// scenarios
+				for (int i = 0; i < scenarioCount; ++i) {
+					this->string = /*"Scenario ", (i + 1), ": ",*/ scenarios.get(button.scenarios[i]).name;//sconfiguration.getScenario(button.scenarios[i]).name;
+					entry(this->string);
+				}
+				
+				entry("Add Scenario");
+	 			entry("Delete Button");
+				entry("Exit");
+			}
+			break;
+		case SELECT_SCENARIO:
+			{
+				int scenarioCount = scenarios.getCount();//configuration.getScenarioCount();
+				menu(delta, scenarioCount + 1);
+				for (int i = 0; i < scenarioCount; ++i) {
+					entry(scenarios.get(i).name);//configuration.getScenario(i).name);
+				}
+				entry("Remove Scenario");
+			}
+			break;
+		case TIMERS:
+			{
+			
 			}
 			break;
 		}
 	}
 	
-	void setEvent(const char *event) {
-		this->eventTime = timer.getValue();
-		this->event = event;
-		this->state = EVENT;
+	void onButton(uint32_t id, uint8_t state) {
+		switch (this->state) {
+		case BUTTONS:
+			{
+				int buttonCount = buttons.getCount();
+				for (int i = 0; i < buttonCount; ++i) {
+					const Button &button = buttons.get(i);
+					if (button.id == id && button.state == state) {
+						this->selected = i;
+						this->button = buttons.get(i);
+						push(EDIT_BUTTON);
+						break;
+					}
+				}
+			}
+			break;
+		case ADD_BUTTON:
+			{
+				this->button.id = id;
+				this->button.state = state;
+			}
+			break;
+		default:
+			;
+		}
+	}
+	
+	String<32> &toast() {
+		this->toastTime = timer.getValue();
+		this->state = TOAST;
+		return this->string;
 	}
 	
 protected:
+	
+	void menu(int delta, int entryCount) {
+		// adjust yOffset so that selected entry is visible
+		const int lineHeight = tahoma_8pt.height + 4;
+		int upper = this->selected * lineHeight;
+		int lower = upper + lineHeight;
+		if (upper < this->yOffset)
+			this->yOffset = upper;
+		if (lower > this->yOffset + bitmap.HEIGHT)
+			this->yOffset = lower - bitmap.HEIGHT;
+	
+		// update selected according to delta motion of poti
+		this->selected = limit(this->selected + delta, entryCount);
+		this->entryIndex = 0;
+	}
+	
+	void entry(const char* s) {
+		const int lineHeight = tahoma_8pt.height + 4;
+		
+		int y = this->entryIndex * lineHeight + 2 - this->yOffset;
+		if (this->entryIndex == this->selected)
+			bitmap.drawText(0, y, tahoma_8pt, ">");
+		bitmap.drawText(10, y, tahoma_8pt, s);
+
+		++this->entryIndex;
+	}
+	
+	void push(State state) {
+		this->stack[this->stackIndex++] = {this->state, this->selected, this->yOffset};
+		this->state = state;
+		this->selected = 0;
+		this->yOffset = 0;
+	}
+	
+	void pop() {
+		this->state = this->stack[--this->stackIndex].state;
+		this->selected = this->stack[this->stackIndex].selected;
+		this->yOffset = this->stack[this->stackIndex].yOffset;
+	}
+	
+	int getThisIndex() {
+		return this->stack[this->stackIndex - 1].selected;
+	}
+	
+	// menu state
 	State state = IDLE;
 
-	// event data
-	int eventTime;
-	const char *event;
+	// index of selected element
+	int selected = 0;
+	
+	bool edit = false;
+	
+	// menu display state
+	int yOffset = 0;
+	int entryIndex;
+
+	// menu stack
+	struct StackEntry {State state; int selected; int yOffset;};
+	int stackIndex = 0;
+	StackEntry stack[6];
+	
+	// toast data
+	int toastTime;
+	
+	// temporary string
+	String<32> string;
+	
+	// temporary objects
+	Button button;
+	Scenario scenario;
 };
 Menu menu;
 
@@ -559,41 +1459,49 @@ void EnOceanProtocol::onPacket(uint8_t packetType, const uint8_t *data, int leng
 			int state = data[1];
 			std::cout << "nodeId " << std::hex << nodeId << " state " << state << std::dec << std::endl;
 			
-			// find scenario
-			const uint8_t *scenarios = configuration.findScenarios(nodeId, state);
-			if (scenarios != nullptr) {
-				// find current scenario by comparing similarity to actor target values
-				int bestSimilarity = 0x7fffffff;
-				int bestI;
-				for (int i = 0; i < Configuration::SCENARIO_COUNT && scenarios[i] != 0xff; ++i) {
-					uint8_t scenario = scenarios[i];
-					const uint8_t *values = configuration.getActorValues(scenario);
-					int similarity = actors.getSimilarity(values);
-					if (similarity < bestSimilarity) {
-						bestSimilarity = similarity;
-						bestI = i;
+			if (menu.getState() == Menu::IDLE || menu.getState() == Menu::TOAST) {
+				// find scenario
+				const Button *button = findButton(nodeId, state);
+				if (button != nullptr) {
+					// find current scenario by comparing similarity to actor target values
+					int bestSimilarity = 0x7fffffff;
+					int bestI = -1;
+					for (int i = 0; i < Button::SCENARIO_COUNT && button->scenarios[i] != 0xff; ++i) {
+						uint8_t scenario = button->scenarios[i];
+						const uint8_t *values = findScenario(scenario)->actorValues;
+						int similarity = actorValues.getSimilarity(values);
+						if (similarity < bestSimilarity) {
+							bestSimilarity = similarity;
+							bestI = i;
+						}
+					}
+					if (bestI != -1) {
+						int currentScenario = button->scenarios[bestI];
+					
+						// check if actor (e.g. blind) is still moving
+						if (actorValues.stop(findScenario(currentScenario)->actorValues)) {
+							// stopped
+							//std::cout << "stopped" << std::endl;
+							menu.toast() = "Stopped";
+						} else {
+							// next scenario
+							//std::cout << "next" << std::endl;
+							int nextI = bestI + 1;
+							if (nextI >= Button::SCENARIO_COUNT || button->scenarios[nextI] == 0xff)
+								nextI = 0;
+							const Scenario *nextScenario = findScenario(button->scenarios[nextI]);
+
+							// set actor values for next scenario
+							actorValues.set(nextScenario->actorValues);
+						
+							// display scenario name
+							menu.toast() = nextScenario->name;
+						}
 					}
 				}
-				int currentScenario = scenarios[bestI];
-				
-				// check if actor (e.g. blind) is still moving
-				if (actors.stop(configuration.getActorValues(currentScenario))) {
-					// stopped
-					menu.setEvent("Stopped");
-				} else {
-					// next scenario
-					int nextI = bestI + 1;
-					if (nextI >= Configuration::SCENARIO_COUNT || scenarios[nextI] == 0xff)
-						nextI = 0;
-					uint8_t nextScenario = scenarios[nextI];
-
-					// set actor values for next scenario
-					actors.setValues(configuration.getActorValues(nextScenario));
-				
-					// display scenario name
-					const char *name = configuration.getScenarioName(nextScenario);
-					menu.setEvent(name);
-				}
+			} else {
+				if (state != 0)
+					menu.onButton(nodeId, state);
 			}
 		}
 		if (optionalLength >= 7) {
@@ -616,7 +1524,19 @@ uint8_t EnOceanProtocol::calcChecksum(const uint8_t *data, int length) {
 }
 
 
-int main(void) {
+int main(int argc, const char **argv) {
+	if (argc <= 1) {
+		std::cout << "usage: emulator <device>" << std::endl;
+	#if __APPLE__
+		std::cout << "example: emulator /dev/tty.usbserial-FT3PMLOR" << std::endl;
+	#elif __linux__
+	#endif
+		return 1;
+	}
+	
+	// get device from command line
+	std::string device = argv[1];
+	
 	GLFWwindow *window;
 	
 	// init
@@ -680,14 +1600,30 @@ int main(void) {
 		const float step = 1.0f / 8.0f;
 		const float size = 0.1f;
 		blinds[i].setRect((step - size) * 0.5f + (i + 4) * step, y - size * 2, size, size * 2);
-		actors.setSpeed(i + 4, 2000);
 	}
 
-	// timer
-	Timer timer;
+	// init flash
+	int page = 0;
+	page += actors.init(page);
+	page += scenarios.init(page);
+	page += buttons.init(page);
+	for (auto && actorInfo : actorsData) {
+		actors.write(actors.getCount(), actorInfo);
+	}
+	for (auto && scenario : scenariosData) {
+		scenarios.write(scenarios.getCount(), scenario);
+	}
+	for (auto && button : buttonsData) {
+		buttons.write(buttons.getCount(), button);
+	}
+
+	// set speed to actor values
+	for (int i = 0; i < actors.getCount(); ++i) {
+		actorValues.setSpeed(i, actors.get(i).speed);
+	}
 
 	// connection to EnOcean controller
-	EnOceanProtocol protocol("/dev/tty.usbserial-FT3PMLOR");
+	EnOceanProtocol protocol(device);
 	
 	// loop
 	int frameCount = 0;
@@ -718,15 +1654,29 @@ int main(void) {
 
 		// update
 		protocol.update();
-		actors.update();
+		actorValues.update();
 		display.update(bitmap);
-		menu.show();
+		menu.update(poti1.getDelta(), poti1.getPress());
+
+		// get relay outputs
+		uint8_t outputs = 0;
+		for (int i = 0; i < actors.getCount(); ++i) {
+			const Actor &actor = actors.get(i);
+			if (actor.type == Actor::Type::SWITCH) {
+				outputs |= actorValues.getSwitchState(i) << actor.outputIndex;
+			} else {
+				outputs |= actorValues.getBlindState(i) << actor.outputIndex;
+			}
+		}
+		//std::cout << int(outputs) << std::endl;
+		
+		// transfer actor values to emulator
 		for (int i = 0; i < 4; ++i) {
-			lights[i].setValue(actors.getCurrentValue(i));
-			blinds[i].setValue(actors.getCurrentValue(i + 4));
+			lights[i].setValue(actorValues.get(i));
+			blinds[i].setValue(actorValues.get(i + 4));
 		}
 
-		// draw on screen
+		// draw emulator on screen
 		glViewport(0, 0, width, height);
 		glClear(GL_COLOR_BUFFER_BIT);
 		layoutManager.draw();
@@ -750,5 +1700,5 @@ int main(void) {
 	// cleanup
 	glfwDestroyWindow(window);
 	glfwTerminate();
-	exit(EXIT_SUCCESS);
+	return 0;
 }

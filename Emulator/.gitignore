@@ -1,0 +1,8 @@
+build*/
+cmake-build*/
+
+# CLion
+.idea/
+
+# QtCreator
+CMakeLists.txt.user

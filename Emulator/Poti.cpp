@@ -40,7 +40,7 @@ void Poti::touch(bool first, float x, float y)
 		float by = this->y - 0.5f;
 
 		float d = (ax * by - ay * bx) / (std::sqrt(ax * ax + ay * ay) * std::sqrt(bx * bx + by * by));
-		this->value = this->value + int(d * 10000);
+		this->value = this->value + int(d * 10000 * 24);
 	}
 	this->x = x;
 	this->y = y;
@@ -54,6 +54,6 @@ void Poti::release()
 void Poti::setState()
 {
 	// set uniforms
-	glUniform1f(this->valueLocation, float(this->value & 0xffff) / 65536.0f * 2.0f * M_PI);
+	glUniform1f(this->valueLocation, float(this->value & 0xffff) / (65536.0f * 24.0f) * 2.0f * M_PI);
 	glUniform1f(this->stateLocation, this->state ? 1.0f : 0.0f);
 }

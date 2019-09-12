@@ -29,25 +29,25 @@ public:
 			this->data[i] = 0;
 	}
 	
-	void drawRectangle(int x, int y, int width, int height, Mode mode) {
+	void drawRectangle(int x, int y, int width, int height, Mode mode = Mode::SET) {
 		fillBitmap(W, H, this->data, x, y, width, 1, mode);
 		fillBitmap(W, H, this->data, x, y + height - 1, width, 1, mode);
 		fillBitmap(W, H, this->data, x, y + 1, 1, height - 2, mode);
 		fillBitmap(W, H, this->data, x + width - 1, y + 1, 1, height - 2, mode);
 	}
 
-	void fillRectangle(int x, int y, int width, int height, Mode mode) {
+	void fillRectangle(int x, int y, int width, int height, Mode mode = Mode::SET) {
 		fillBitmap(W, H, this->data, x, y, width, height, mode);
 	}
 	
-	void drawGlyph(int x, int y, int width, int height, const uint8_t *data, Mode mode) {
+	void drawGlyph(int x, int y, int width, int height, const uint8_t *data, Mode mode = Mode::SET) {
 		copyBitmapH(W, H, this->data, x, y, width, height, data, mode);
 	}
 
 	///
 	/// draw text
 	/// @return width of text
-	int drawText(int x, int y, Font const & font, char const * text, Mode mode) {
+	int drawText(int x, int y, Font const & font, char const * text, Mode mode = Mode::SET) {
 		if (text == nullptr || *text == 0)
 			return 0;
 		for (; *text != 0; ++text) {
