@@ -21,6 +21,8 @@ void fillBitmap(int w, int h, uint8_t *data, int x, int y, int width, int height
 	if (y + height > h) {
 		height = h - y;
 	}
+	if (width <= 0 || height <= 0)
+		return;
 	
 	int endRows = (y + height) & 7;
 	uint8_t *page = &data[(y >> 3) * w] + x;
@@ -87,9 +89,10 @@ void fillBitmap(int w, int h, uint8_t *data, int x, int y, int width, int height
 	}
 }
 
-void copyBitmapH(int w, int h, uint8_t *data, int x, int y, int width, int height, const uint8_t *bitmap, Mode mode)
+void copyBitmapH(int w, int h, uint8_t *data, int x, int y, int width, int height, const uint8_t *bitmap,
+	Mode frontMode, Mode backMode)
 {
-	if (mode == Mode::KEEP)
+	if (frontMode == Mode::KEEP && backMode == Mode::KEEP)
 		return;
 
 	// number of bytes in a row of the bitmap
@@ -119,17 +122,31 @@ void copyBitmapH(int w, int h, uint8_t *data, int x, int y, int width, int heigh
 		uint8_t *page = &data[((y + j) >> 3) * w] + x;
 		
 		for (int i = 0; i < width; ++i) {
+			uint8_t bit = 1 << ((y + j) & 7);
 			if (bitmap[(o + i) >> 3] & (0x80 >> ((o + i) & 7))) {
-				uint8_t bit = 1 << ((y + j) & 7);
-				switch (mode) {
+				switch (frontMode) {
 				case Mode::CLEAR:
 					page[i] &= ~bit;
 					break;
 				case Mode::FLIP:
 					page[i] ^= bit;
 					break;
-				default:
+				case Mode::SET:
 					page[i] |= bit;
+				default:
+					break;
+				}
+			} else {
+				switch (backMode) {
+				case Mode::CLEAR:
+					page[i] &= ~bit;
+					break;
+				case Mode::FLIP:
+					page[i] ^= bit;
+					break;
+				case Mode::SET:
+					page[i] |= bit;
+				default:
 					break;
 				}
 			}

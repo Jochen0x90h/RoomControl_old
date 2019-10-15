@@ -30,5 +30,6 @@ struct Font {
 	// glyph bitmap data
 	uint8_t const * bitmap;
 	
-	int calcWidth(char const * text);
+	int calcWidth(const char *text, int space);
+	int calcWidth(const char *text, int length, int space);
 };

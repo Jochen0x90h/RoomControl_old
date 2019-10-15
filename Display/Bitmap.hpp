@@ -15,7 +15,8 @@ enum class Mode {
 void fillBitmap(int w, int h, uint8_t *data, int x, int y, int width, int height, Mode mode);
 
 // copy a bitmap that is organized horizontally (font)
-void copyBitmapH(int w, int h, uint8_t *data, int x, int y, int width, int height, const uint8_t *bitmap, Mode mode);
+void copyBitmapH(int w, int h, uint8_t *data, int x, int y, int width, int height, const uint8_t *bitmap,
+	Mode frontMode, Mode backMode);
 
 template <int W, int H>
 class Bitmap {
@@ -40,25 +41,36 @@ public:
 		fillBitmap(W, H, this->data, x, y, width, height, mode);
 	}
 	
-	void drawGlyph(int x, int y, int width, int height, const uint8_t *data, Mode mode = Mode::SET) {
-		copyBitmapH(W, H, this->data, x, y, width, height, data, mode);
-	}
+	//void drawGlyph(int x, int y, int width, int height, const uint8_t *data, Mode mode = Mode::SET) {
+	//	copyBitmapH(W, H, this->data, x, y, width, height, data, mode);
+	//}
 
 	///
 	/// draw text
-	/// @return width of text
-	int drawText(int x, int y, Font const & font, char const * text, Mode mode = Mode::SET) {
+	/// @return x coordinate of end of text
+	int drawText(int x, int y, Font const & font, char const * text, int space, Mode frontMode = Mode::SET,
+		Mode backMode = Mode::KEEP)
+	{
 		if (text == nullptr || *text == 0)
-			return 0;
-		for (; *text != 0; ++text) {
+			return x;
+		while (true) {
+			// draw character
 			unsigned char ch = *text;
 			if (ch <= font.first || ch >= font.last)
 				ch = ' ';
 			const Character &character = font.characters[ch - font.first];
+			copyBitmapH(W, H, this->data, x, y, character.width, font.height, font.bitmap + character.offset, frontMode,
+				backMode);
+			x += character.width;
 			
-			copyBitmapH(W, H, this->data, x, y, character.width, font.height, font.bitmap + character.offset, mode);
+			// increment and check for end
+			++text;
+			if (*text == 0)
+				break;
 			
-			x += character.width + 1;
+			// draw space
+			fillBitmap(W, H, this->data, x, y, space, font.height, backMode);
+			x += space;
 		}
 		return x;
 	}
