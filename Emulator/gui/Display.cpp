@@ -9,7 +9,7 @@ Display::Display()
 		"in vec2 xy;\n"
 		"out vec4 pixel;\n"
 		"void main() {\n"
-			"pixel = texture(tex, xy).xxxw;\n"
+			"pixel = texture(tex, vec2(xy.x, 1 - xy.y)).xxxw;\n"
 		"}\n")
 {
 	setTextureIndex("tex", 0);

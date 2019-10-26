@@ -16,13 +16,10 @@ public:
 	/**
 	 * current time since system start in milliseconds
 	 */
-	uint32_t getValue() {
+	uint32_t getTicks() {
 		return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - this->start).count();
 	}
 	
 protected:
 	std::chrono::steady_clock::time_point start;
 };
-
-// global instance
-extern Ticker ticker;

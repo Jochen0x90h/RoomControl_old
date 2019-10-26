@@ -14,6 +14,8 @@ struct Character {
 };
 
 struct Font {
+	static const int TAB_WIDTH = 5;
+	
 	// common character height
 	uint8_t height;
 

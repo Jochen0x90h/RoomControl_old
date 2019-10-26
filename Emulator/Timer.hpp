@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Action.hpp"
+
 
 struct Timer {
 	static const int WEEKDAYS_MASK = 0x7f000000; // flag for each weekday
@@ -13,20 +15,20 @@ struct Timer {
 
 	static const int WEEKDAYS_SHIFT = Clock::WEEKDAY_SHIFT;
 
-	// maximum number of scenarios per button that can be cycled
-	static const int SCENARIO_COUNT = 8;
+	// maximum number of actions per timer
+	static const int ACTION_COUNT = 8;
 
 	// trigger time
 	uint32_t time;
 	
-	// ids of scenarios that are cycled when pressing the button
-	uint8_t scenarios[SCENARIO_COUNT];
+	// list of actions, the first feasible action gets executed
+	Action actions[ACTION_COUNT];
 
-	int getScenarioCount() const {
-		for (int i = 0; i < SCENARIO_COUNT; ++i) {
-			if (this->scenarios[i] == 0xff)
+	int getActionCount() const {
+		for (int i = 0; i < ACTION_COUNT; ++i) {
+			if (!this->actions[i].isValid())
 				return i;
 		}
-		return SCENARIO_COUNT;
+		return ACTION_COUNT;
 	}
 };

@@ -89,7 +89,7 @@ Widget::Matrix4x4 Widget::getMatrix()
 {
 	Matrix4x4 mat = {{
 		(this->x2 - this->x1) * 2.0f, 0, 0, this->x1 * 2.0f - 1.0f,
-		0, (this->y2 - this->y1) * 2.0f, 0, this->y1 * 2.0f - 1.0f,
+		0, -(this->y2 - this->y1) * 2.0f, 0, -(this->y1 * 2.0f - 1.0f) ,
 		0, 0, 0, 0,
 		0, 0, 0, 1}};
 	return mat;

@@ -76,8 +76,8 @@ void Storage::init() {
 	
 void Storage::write(ArrayData *arrayData, int op, int index, int value) {
 	// check if there is enough space
-	int size = 1 + (op == OVERWRITE ? arrayData->elementSize : 0);
-	if (it <= end - size) {
+	int size = 1 + (op == OVERWRITE ? arrayData->elementSize * value : 0);
+	if (this->it <= this->end - size) {
 		// write update to flash
 		Header header = {arrayData->index, uint8_t(op), uint8_t(index), uint8_t(value)};
 		Flash::write(this->it, (uint32_t*)&header, 1);

@@ -19,6 +19,9 @@ find_package(glfw3 3.3 REQUIRED)
 # macOS: brew install boost
 find_package(Boost REQUIRED COMPONENTS system)
 
+# find Display, Poti and Temperature in gui subdirectory
+include_directories(gui)
+
 set(GLAD
 	glad/glad.c
 	glad/glad.h
@@ -27,12 +30,15 @@ set(GLAD
 source_group(glad FILES ${GLAD})
 
 set(GUI
+	gui/LayoutManager.hpp
 	gui/Widget.cpp
 	gui/Widget.hpp
 	gui/Display.cpp
 	gui/Display.hpp
 	gui/Poti.cpp
 	gui/Poti.hpp
+	gui/DeviceWidget.cpp
+	gui/DeviceWidget.hpp
 	gui/Light.cpp
 	gui/Light.hpp
 	gui/Blind.cpp
@@ -51,19 +57,23 @@ set(SOURCES
 	Storage.hpp
 	Clock.cpp
 	Clock.hpp
-	Actor.hpp
-	Scenario.hpp
-	Button.hpp
-	Timer.hpp
 	String.hpp
-	Ticker.cpp
+	Array.hpp
 	Ticker.hpp
 	Serial.cpp
 	Serial.hpp
 	EnOceanProtocol.cpp
 	EnOceanProtocol.hpp
-	ActorValues.cpp
-	ActorValues.hpp
+	Action.hpp
+	Button.hpp
+	Timer.hpp
+	Scenario.hpp
+	Device.cpp
+	Device.hpp
+	DeviceState.cpp
+	DeviceState.hpp
+	System.cpp
+	System.hpp
 )
 source_group("" FILES ${SOURCES})
 

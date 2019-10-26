@@ -3,8 +3,8 @@
 #include <cmath>
 
 
-Light::Light()
-	: Widget(
+Light::Light(LayoutManager &layoutManager)
+	: DeviceWidget(
 		"#version 330\n"
 		"uniform float value;\n"
 		"in vec2 xy;\n"
@@ -15,7 +15,7 @@ Light::Light()
 			"float length = sqrt(a.x * a.x + a.y * a.y);\n"
 			"float limit = cos(angle * 50) * 0.1 + 0.4;\n"
 			"pixel = length < limit ? (vec4(value, value, 0, 1)) : vec4(0, 0, 0, 1);\n"
-		"}\n")
+		"}\n", layoutManager)
 {
 	
 	// get uniform locations
@@ -23,6 +23,10 @@ Light::Light()
 }
 
 Light::~Light() {
+}
+
+void Light::setState(const DeviceState &deviceState) {
+	this->value = deviceState.interpolator >> 16;
 }
 
 void Light::setState() {

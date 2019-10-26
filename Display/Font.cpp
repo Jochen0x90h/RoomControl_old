@@ -2,46 +2,34 @@
 
 
 int Font::calcWidth(const char *text, int space) {
-	if (text == nullptr || *text == 0)
+	if (text == nullptr)
 		return 0;
-	int width = 0;
-	while (true) {
-		// width of character
-		unsigned char ch = *text;
-		if (ch <= this->first || ch >= this->last)
-			ch = ' ';
-		width += this->characters[ch - this->first].width;
-		
-		// increment and check for end
-		++text;
-		if (*text == 0)
-			break;
-		
-		// width of space
-		width += space;
-	}
-	return width;
+	int length = 0;
+	while (text[length] != 0)
+		++length;
+	return calcWidth(text, length, space);
 }
 
 int Font::calcWidth(const char *text, int length, int space) {
-	if (length == 0)
-		return 0;
 	int width = 0;
-	int i = 0;
-	while (true) {
-		// width of character
-		unsigned char ch = text[i];
-		if (ch <= this->first || ch >= this->last)
-			ch = ' ';
-		width += this->characters[ch - this->first].width;
-	
-		// increment and check for end
-		++i;
-		if (i == length)
-			break;
+	while (length > 0) {
+		unsigned char ch = *text;
+		if (ch == '\t') {
+			width += TAB_WIDTH;
+		} else {
+			if (ch < this->first || ch > this->last)
+				ch = '?';
 
-		// width of space
-		width += space;
+			// width of character
+			width += this->characters[ch - this->first].width;
+			
+			// width of space
+			width += space;
+		}
+	
+		// next character
+		++text;
+		--length;
 	}
 	return width;
 }

@@ -48,29 +48,42 @@ public:
 	///
 	/// draw text
 	/// @return x coordinate of end of text
-	int drawText(int x, int y, Font const & font, char const * text, int space, Mode frontMode = Mode::SET,
+	int drawText(int x, int y, const Font &font, const char *text, int space, Mode frontMode = Mode::SET,
 		Mode backMode = Mode::KEEP)
 	{
-		if (text == nullptr || *text == 0)
-			return x;
-		while (true) {
-			// draw character
+		if (text == nullptr)
+			return 0;
+		int length = 0;
+		while (text[length] != 0)
+			++length;
+		return drawText(x, y, font, text, length, space, frontMode, backMode);
+	}
+
+	int drawText(int x, int y, const Font &font, const char *text, int length, int space, Mode frontMode = Mode::SET,
+		Mode backMode = Mode::KEEP)
+	{
+		while (length > 0) {
 			unsigned char ch = *text;
-			if (ch <= font.first || ch >= font.last)
-				ch = ' ';
-			const Character &character = font.characters[ch - font.first];
-			copyBitmapH(W, H, this->data, x, y, character.width, font.height, font.bitmap + character.offset, frontMode,
-				backMode);
-			x += character.width;
-			
-			// increment and check for end
+			if (ch == '\t') {
+				x += Font::TAB_WIDTH;
+			} else {
+				if (ch < font.first || ch > font.last)
+					ch = '?';
+				
+				// draw character
+				const Character &character = font.characters[ch - font.first];
+				copyBitmapH(W, H, this->data, x, y, character.width, font.height, font.bitmap + character.offset, frontMode,
+					backMode);
+				x += character.width;
+
+				// draw space
+				fillBitmap(W, H, this->data, x, y, space, font.height, backMode);
+				x += space;
+			}
+
+			// next character
 			++text;
-			if (*text == 0)
-				break;
-			
-			// draw space
-			fillBitmap(W, H, this->data, x, y, space, font.height, backMode);
-			x += space;
+			--length;
 		}
 		return x;
 	}

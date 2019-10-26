@@ -1,5 +1,17 @@
 #pragma once
 
+#include <stdint.h>
+
+
+struct String {
+	const char *data;
+	uint8_t length;
+
+	String() : data(nullptr), length(0) {}
+
+	template <int N>
+	String(const char (&string)[N]) : data(string), length(N) {}
+};
 
 // decimal numbers
 template <typename T>
@@ -42,22 +54,24 @@ static const char *hexTable = "0123456789ABCDEF";
  * String buffer with fixed maximum length
  */
 template <int L>
-class String {
+class StringBuffer {
 public:
-	String() {}
+	StringBuffer() {}
+	
+	void clear() {this->index = 0;}
 	
 	template <typename T>
-	String &operator = (const T &value) {
+	StringBuffer &operator = (const T &value) {
 		this->index = 0;
 		return operator , (value);
 	}
 
 	template <typename T>
-	String &operator += (const T &value) {
+	StringBuffer &operator += (const T &value) {
 		return operator , (value);
 	}
 
-	String &operator , (char ch) {
+	StringBuffer &operator , (char ch) {
 		if (this->index < L)
 			this->buffer[this->index++] = ch;
 		this->buffer[this->index] = 0;
@@ -65,7 +79,7 @@ public:
 	}
 
 /*
-	String &operator , (const char* s) {
+	StringBuffer &operator , (const char* s) {
 		while (*s != 0 && this->index < L) {
 			this->buffer[this->index++] = *(s++);
 		}
@@ -75,9 +89,20 @@ public:
 */
 
 	template <int N>
-	String &operator , (const char (&array)[N]) {
+	StringBuffer &operator , (const char (&string)[N]) {
 		for (int i = 0; i < N && this->index < L; ++i) {
-			char ch = array[i];
+			char ch = string[i];
+			if (ch == 0)
+				break;
+			this->buffer[this->index++] = ch;
+		}
+		this->buffer[this->index] = 0;
+		return *this;
+	}
+
+	StringBuffer &operator , (const String &string) {
+		for (int i = 0; i < string.length && this->index < L; ++i) {
+			char ch = string.data[i];
 			if (ch == 0)
 				break;
 			this->buffer[this->index++] = ch;
@@ -87,7 +112,7 @@ public:
 	}
 
 	template <typename T>
-	String &operator , (Decimal<T> decimal) {
+	StringBuffer &operator , (Decimal<T> decimal) {
 		char buffer[12];
 
 		unsigned int value = decimal.value < 0 ? -decimal.value : decimal.value;
@@ -115,12 +140,12 @@ public:
 		return *this;
 	}
 
-	String &operator , (int dec) {
+	StringBuffer &operator , (int dec) {
 		return operator , (Decimal<int>(dec, 1));
 	}
 
 	template <typename T>
-	String &operator , (Bcd<T> bcd) {
+	StringBuffer &operator , (Bcd<T> bcd) {
 		int end = bcd.digitCount * 4;
 		while (end < 32 && bcd.value >> end != 0)
 			end += 4;
@@ -132,7 +157,7 @@ public:
 	}
 
 	template <typename T>
-	String &operator , (Hex<T> hex) {
+	StringBuffer &operator , (Hex<T> hex) {
 		for (int i = sizeof(T) * 8 - 4; i >= 0 && this->index < L; i -= 4) {
 			this->buffer[this->index++] = hexTable[(hex.value >> i) & 0xf];
 		}
@@ -144,6 +169,7 @@ public:
 		return this->buffer;
 	}
 	
+	bool empty() {return this->index == 0;}
 	int length() {return this->index;}
 
 protected:

@@ -7,3 +7,6 @@ inline int abs(int x) {return x > 0 ? x : -x;}
 #endif
 inline int clamp(int x, int minval, int maxval) {return x < minval ? minval : (x > maxval ? maxval : x);}
 inline int limit(int x, int size) {return x < 0 ? 0 : (x >= size ? size - 1 : x);}
+
+template <typename T, int N>
+inline int size(const T (&array)[N]) {return N;}

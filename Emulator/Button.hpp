@@ -1,9 +1,11 @@
 #pragma once
 
+#include "Action.hpp"
+
 
 struct Button {
-	// maximum number of scenarios per button that can be cycled
-	static const int SCENARIO_COUNT = 8;
+	// maximum number of actions per button
+	static const int ACTION_COUNT = 8;
 
 	// enocean id of button
 	uint32_t id;
@@ -11,14 +13,14 @@ struct Button {
 	// button state
 	uint8_t state;
 	
-	// ids of scenarios that are cycled when pressing the button
-	uint8_t scenarios[SCENARIO_COUNT];
+	// list of actions, the first feasible action gets executed
+	Action actions[ACTION_COUNT];
 
-	int getScenarioCount() const {
-		for (int i = 0; i < SCENARIO_COUNT; ++i) {
-			if (this->scenarios[i] == 0xff)
+	int getActionCount() const {
+		for (int i = 0; i < ACTION_COUNT; ++i) {
+			if (!this->actions[i].isValid())
 				return i;
 		}
-		return SCENARIO_COUNT;
+		return ACTION_COUNT;
 	}
 };
