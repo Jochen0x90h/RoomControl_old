@@ -21,3 +21,18 @@ struct Action {
 	
 	bool isValid() const {return this->id != 0xff || this->state != 0xff;}
 };
+
+struct Actions {
+	static const int ACTION_COUNT = 8;
+
+	// list of actions
+	Action actions[ACTION_COUNT];
+
+	int getActionCount() const {
+		for (int i = 0; i < ACTION_COUNT; ++i) {
+			if (!this->actions[i].isValid())
+				return i;
+		}
+		return ACTION_COUNT;
+	}
+};

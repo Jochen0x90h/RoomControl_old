@@ -54,15 +54,28 @@ public:
 		// start receiving data
 		receive();
 	}
+	
+	/**
+	 * Receive new data and update internal state. Returns true if a complete frame was received.
+	 */
+	bool update();
 
-	void update();
+	uint8_t getPacketType() {return this->rxBuffer[4];}
+	int getPacketLength() {return (this->rxBuffer[1] << 8) | this->rxBuffer[2];}
+	int getOptionalLength() {return this->rxBuffer[3];}
+	uint8_t *getData() {return this->rxBuffer + 6;}
+	
+	/**
+	 * Discard the current frame and continue receiving, only call after update() has returned true
+	 */
+	void discardFrame();
 
 protected:
 
 	void receive();
 
-	virtual void onPacket(uint8_t packetType, const uint8_t *data, int length,
-		const uint8_t *optionalData, int optionalLength) = 0;
+	//virtual void onPacket(uint8_t packetType, const uint8_t *data, int length,
+	//	const uint8_t *optionalData, int optionalLength) = 0;
 	
 	/// Calculate checksum of EnOcean frame
 	uint8_t calcChecksum(const uint8_t *data, int length);

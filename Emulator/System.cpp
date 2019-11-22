@@ -10,8 +10,11 @@ static const char weekdaysShort[7][4] = {"M", "T", "W", "T", "F", "S", "S"};
 
 
 System::System(Serial::Device device)
-	: EnOceanProtocol(device), storage(16, 16, buttons, timers, scenarios, devices)
+	: protocol(device), storage(16, 16, events, scenarios, devices)
 {
+	// initialize event states
+
+	// initialize device states
 	for (int i = 0; i < this->devices.size(); ++i) {
 		this->deviceStates[i].init(this->devices[i]);
 	}
@@ -21,24 +24,15 @@ void System::onPacket(uint8_t packetType, const uint8_t *data, int length, const
 {
 	//std::cout << "onPacket " << length << " " << optionalLength << std::endl;
 
-	if (packetType == RADIO_ERP1) {
+	if (packetType == EnOceanProtocol::RADIO_ERP1) {
 		if (length >= 7 && data[0] == 0xf6) {
 			
 			uint32_t nodeId = (data[2] << 24) | (data[3] << 16) | (data[4] << 8) | data[5];
 			int state = data[1];
 			//std::cout << "nodeId " << std::hex << nodeId << " state " << state << std::dec << std::endl;
-			
-			if (this->state == System::IDLE) {
-				// find button
-				const Button *button = findButton(nodeId, state);
-				if (button != nullptr) {
-					Action action = doFirstAction(button->actions, button->getActionCount());
-					setAction(action);
-					toast();
-				}
-			} else {
-				if (state != 0)
-					onButton(nodeId, state);
+
+			if (state != 0) {
+				onSwitch(nodeId, state);
 			}
 		}
 		if (optionalLength >= 7) {
@@ -51,29 +45,39 @@ void System::onPacket(uint8_t packetType, const uint8_t *data, int length, const
 }
 	
 void System::update() {
-	// update enocean protocol
-	EnOceanProtocol::update();
+	// update motion detector
+	if (this->motionDetector.isActivated()) {
+		onSwitch(0, 0);
+	}
 	
 	// update timers
 	{
 		// get current time in minutes
 		uint32_t time = this->clock.getTime() & ~Clock::SECONDS_MASK;
 		if (time != this->lastTime) {
-			for (int i = 0; i < this->timers.size(); ++i) {
-				const Timer &timer = this->timers[i];
-				
+			for (const Event &event : this->events) {
 				int weekday = (time & Clock::WEEKDAY_MASK) >> Clock::WEEKDAY_SHIFT;
-				if (((timer.time ^ time) & (Clock::MINUTES_MASK | Clock::HOURS_MASK)) == 0
-					&& (timer.time & (Timer::MONDAY << weekday)))
+				if (((event.input ^ time) & (Clock::MINUTES_MASK | Clock::HOURS_MASK)) == 0
+					&& (event.value & weekday))
 				{
 					// trigger alarm
-					Action action = doFirstAction(timer.actions, timer.getActionCount());
-					setAction(action);
-					toast();
+					doFirstActionAndToast(event);
 				}
 			}
 			this->lastTime = time;
 		}
+	}
+	
+	// update enocean protocol
+	if (this->protocol.update()) {
+		uint8_t packetType = this->protocol.getPacketType();
+		uint8_t packetLength = this->protocol.getPacketLength();
+		uint8_t optionalLength = this->protocol.getOptionalLength();
+		uint8_t* data = this->protocol.getData();
+		
+		onPacket(packetType, data, packetLength, data + packetLength, optionalLength);
+
+		this->protocol.discardFrame();
 	}
 	
 	// update devices
@@ -91,8 +95,8 @@ void System::update() {
 			// update device
 			outputs |= deviceState.update(device, d);
 		
-			// apply constraints
-			applyConstraints(device, deviceState);
+			// apply conditions
+			applyConditions(device, deviceState);
 		}
 	
 		this->lastTicks = ticks;
@@ -102,68 +106,90 @@ void System::update() {
 	// update temperature
 	this->temperature.update();
 	
-	// update system
+	// update menu
 	updateMenu();
-	
-	// update display
-	this->display.update(this->bitmap);
 }
-	
+
+const int EVENT_ACTIONS_INDEX[] = {1, 2};
+const int SCENARIO_ACTIONS_INDEX = 1;
+const int DEVICE_CONDITIONS_INDEX = 4;
+
+// inputs
+const unsigned int INPUT_COUNT = 1;
+const unsigned int INPUT_MOTION_DETECTOR = 0;
+
+// outputs
+const unsigned int OUTPUT_COUNT = 9;
+const unsigned int OUTPUT_HEATING = 8;
+
 void System::updateMenu() {
 	int delta = this->poti.getDelta();
-	bool press = this->poti.getPress();
+	bool activated = this->poti.isActivated();
 		
-	const int BUTTON_ACTIONS_INDEX = 0;
-	const int TIMER_ACTIONS_INDEX = 2;
-	const int SCENARIO_ACTIONS_INDEX = 1;
-	const int DEVICE_CONSTRAINTS_INDEX = 4;
-
 	// do state change due to press of poti switch
-	if (press) {
+	if (activated) {
 		switch (this->state) {
 		case IDLE:
 			push(MAIN);
 			break;
 		case MAIN:
-			if (this->selected == 0)
-				push(BUTTONS);
-			else if (this->selected == 1)
-				push(TIMERS);
-			else if (this->selected == 2)
+			if (this->selected == 0) {
+				this->u.event.type = Event::Type::SWITCH;
+				push(EVENTS);
+			} else if (this->selected == 1) {
+				this->u.event.type = Event::Type::TIMER;
+				push(EVENTS);
+			} else if (this->selected == 2) {
 				push(SCENARIOS);
-			else if (this->selected == 3)
+			} else if (this->selected == 3) {
 				push(DEVICES);
-			else {
+			} else {
 				// exit
 				pop();
 			}
 			break;
-		case BUTTONS:
+		case EVENTS:
 			{
-				int buttonCount = this->buttons.size();
-				if (this->selected < buttonCount) {
-					// edit button
-					this->button = buttons[this->selected];
-					push(EDIT_BUTTON);
-				} else if (this->selected == buttonCount && buttonCount < BUTTON_COUNT) {
-					// add button
-					this->button.id = 0;
-					this->button.state = 0;
-					for (int i = 0; i < Button::ACTION_COUNT; ++i)
-						this->button.actions[i] = {0xff, 0xff};
-					push(ADD_BUTTON);
+				int eventCount = getEventCount(this->u.event.type);
+				if (this->selected < eventCount) {
+					// edit event
+					this->u.event = getEvent(this->u.event.type, this->selected);
+					push(EDIT_EVENT);
+				} else if (this->selected == eventCount && eventCount < EVENT_COUNT) {
+					// add event
+					this->u.event.input = 0xffffffff;
+					this->u.event.value = 0;
+					for (int i = 0; i < Event::ACTION_COUNT; ++i)
+						this->u.event.actions[i] = {0xff, 0xff};
+					push(ADD_EVENT);
 				} else {
 					// exit
 					pop();
 				}
 			}
 			break;
-		case EDIT_BUTTON:
-		case ADD_BUTTON:
+		case EDIT_EVENT:
+		case ADD_EVENT:
 			{
-				int actionCount = this->button.getActionCount();
-				int addActionIndex = BUTTON_ACTIONS_INDEX + actionCount + (actionCount < Button::ACTION_COUNT ? 0 : -1);
-				if (this->selected < actionCount) {
+				bool isSwitch = this->u.event.type == Event::Type::SWITCH;
+				bool isTimer = this->u.event.type == Event::Type::TIMER;
+				int actionCount = this->u.event.getActionCount();
+				int actionsEndIndex = EVENT_ACTIONS_INDEX[int(this->u.event.type)] + actionCount;
+				int addActionIndex = actionsEndIndex + (actionCount < Event::ACTION_COUNT ? 0 : -1);
+
+				if (isSwitch && this->selected == 0) {
+					// edit switch input
+					this->edit ^= 1;
+				} else if (isTimer && this->selected == 0) {
+					// edit timer time
+					this->edit = this->edit < 2 ? this->edit + 1 : 0;
+				} else if (isTimer && this->selected == 1) {
+					// edit timer weekday
+					if (this->edit == 0)
+						this->edit = 1;
+					else
+						this->u.event.value ^= 1 << (this->edit - 1);
+				} else if (this->selected < actionsEndIndex) {
 					// select action
 					//int scenarioIndex = this->button.scenarios[this->selected];
 					push(SELECT_ACTION);
@@ -174,75 +200,14 @@ void System::updateMenu() {
 					this->selected = 0;//scenarioCount == 0 ? 0 : this->button.scenarios[scenarioCount - 1];
 				} else if (this->selected == addActionIndex + 1) {
 					// save
-					if (this->button.id != 0) {
-						this->buttons.write(getThisIndex(), this->button);
-						pop();
-					} else {
-						toast() = "No Button Defined";
-					}
-				} else if (this->selected == addActionIndex + 2) {
-					// cancel
-					pop();
-				} else {
-					// delete button
-					this->buttons.erase(getThisIndex());
-					pop();
-				}
-			}
-			break;
-		case TIMERS:
-			{
-				int timerCount = timers.size();
-				if (this->selected < timerCount) {
-					// edit timer
-					this->timer = timers[this->selected];
-					push(EDIT_TIMER);
-				} else if (this->selected == timerCount && timerCount < TIMER_COUNT) {
-					// add timer
-					this->timer.time = 0;
-					for (int i = 0; i < Timer::ACTION_COUNT; ++i)
-						this->timer.actions[i] = {0xff, 0xff};
-					push(ADD_TIMER);
-				} else {
-					// exit
-					pop();
-				}
-			}
-			break;
-		case EDIT_TIMER:
-		case ADD_TIMER:
-			{
-				int actionCount = this->timer.getActionCount();
-				int addActionIndex = TIMER_ACTIONS_INDEX + actionCount + (actionCount < Button::ACTION_COUNT ? 0 : -1);
-				if (this->selected == 0) {
-					// edit time
-					this->edit = this->edit < 2 ? this->edit + 1 : 0;
-				} else if (this->selected == 1) {
-					// edit weekday
-					if (this->edit == 0) {
-						this->edit = 1;
-					} else {
-						this->timer.time ^= 1 << (Timer::WEEKDAYS_SHIFT + this->edit - 1);
-					}
-				} else if (this->selected < 2 + actionCount) {
-					// select action
-					//int scenarioIndex = this->timer.scenarios[this->selected - 2];
-					push(SELECT_ACTION);
-					this->selected = 0;//scenarioIndex;
-				} else if (this->selected == addActionIndex) {
-					// add action
-					push(ADD_ACTION);
-					this->selected = 0;//scenarioCount == 0 ? 0 : this->timer.scenarios[scenarioCount - 1];
-				} else if (this->selected == addActionIndex + 1) {
-					// save
-					this->timers.write(getThisIndex(), this->timer);
+					this->events.write(getThisIndex(), this->u.event);
 					pop();
 				} else if (this->selected == addActionIndex + 2) {
 					// cancel
 					pop();
 				} else {
-					// delete timer
-					this->timers.erase(getThisIndex());
+					// delete event
+					this->events.erase(getThisIndex());
 					pop();
 				}
 			}
@@ -252,14 +217,14 @@ void System::updateMenu() {
 				int scenarioCount = this->scenarios.size();
 				if (this->selected < scenarioCount) {
 					// edit scenario
-					this->scenario = scenarios[this->selected];
+					this->u.scenario = scenarios[this->selected];
 					push(EDIT_SCENARIO);
 				} else if (this->selected == scenarioCount && scenarioCount < SCENARIO_COUNT) {
 					// new scenario
 					this->device.id = newScenarioId();
 					strcpy(this->device.name, "New Scenario");
 					for (int i = 0; i < Scenario::ACTION_COUNT; ++i)
-						this->scenario.actions[i] = {0xff, 0xff};
+						this->u.scenario.actions[i] = {0xff, 0xff};
 					push(ADD_SCENARIO);
 				} else {
 					// exit
@@ -270,7 +235,7 @@ void System::updateMenu() {
 		case EDIT_SCENARIO:
 		case ADD_SCENARIO:
 			{
-				const int actionCount = this->scenario.getActionCount();
+				const int actionCount = this->u.scenario.getActionCount();
 				int addActionIndex = SCENARIO_ACTIONS_INDEX + actionCount + (actionCount < Scenario::ACTION_COUNT ? 0 : -1);
 				if (this->selected == 0) {
 					// edit scenario name
@@ -285,14 +250,14 @@ void System::updateMenu() {
 					pop();
 				} else if (this->selected == addActionIndex + 1) {
 					// save
-					this->scenarios.write(getThisIndex(), this->scenario);
+					this->scenarios.write(getThisIndex(), this->u.scenario);
 					pop();
 				} else if (this->selected == addActionIndex + 2) {
 					// cancel
 					pop();
 				} else {
-					// delete timer
-					deleteScenarioId(this->scenario.id);
+					// delete scenario
+					deleteScenarioId(this->u.scenario.id);
 					this->scenarios.erase(getThisIndex());
 					pop();
 				}
@@ -330,50 +295,33 @@ void System::updateMenu() {
 				index -= this->scenarios.size();
 
 				pop();
-
+				
+				int actionsBegin = 0;
 				switch (this->state) {
-				case EDIT_BUTTON:
-				case ADD_BUTTON:
-					if (index < 0) {
-						// add new action to button
-						this->button.actions[this->selected - BUTTON_ACTIONS_INDEX] = action;
-					} else {
-						// remove action from button
-						for (int i = this->selected; i < Button::ACTION_COUNT - 1; ++i) {
-							this->button.actions[i] = this->button.actions[i + 1];
-						}
-						this->button.actions[Button::ACTION_COUNT - 1] = {0xff, 0xff};
-					}
-					break;
-				case EDIT_TIMER:
-				case ADD_TIMER:
-					if (index < 0) {
-						// add new action to timer
-						this->timer.actions[this->selected - TIMER_ACTIONS_INDEX] = action;
-					} else {
-						// remove action from timer
-						for (int i = this->selected; i < Timer::ACTION_COUNT - 1; ++i) {
-							this->timer.actions[i] = this->timer.actions[i + 1];
-						}
-						this->timer.actions[Timer::ACTION_COUNT - 1] = {0xff, 0xff};
-					}
+				case EDIT_EVENT:
+				case ADD_EVENT:
+					actionsBegin = EVENT_ACTIONS_INDEX[int(this->u.event.type)];
 					break;
 				case EDIT_SCENARIO:
 				case ADD_SCENARIO:
-					if (index < 0) {
-						// add new action to scenario
-						this->scenario.actions[this->selected - SCENARIO_ACTIONS_INDEX] = action;
-					} else {
-						// remove action from scenario
-						for (int i = this->selected; i < Scenario::ACTION_COUNT - 1; ++i) {
-							this->scenario.actions[i] = this->scenario.actions[i + 1];
-						}
-						this->scenario.actions[Scenario::ACTION_COUNT - 1] = {0xff, 0xff};
-					}
+					actionsBegin = SCENARIO_ACTIONS_INDEX;
 					break;
 				default:
-					// should not happen
 					;
+				}
+
+				int actionIndex = this->selected - actionsBegin;
+				if (index < 0) {
+					// add new action to event
+					this->u.actions.actions[actionIndex] = action;
+				} else if (index == 0) {
+					// cancel
+				} else {
+					// remove action from event
+					for (int i = actionIndex; i < Event::ACTION_COUNT - 1; ++i) {
+						this->u.actions.actions[i] = this->u.actions.actions[i + 1];
+					}
+					this->u.actions.actions[Event::ACTION_COUNT - 1] = {0xff, 0xff};
 				}
 			}
 			break;
@@ -390,7 +338,7 @@ void System::updateMenu() {
 					this->device.type = Device::Type::SWITCH;
 					strcpy(this->device.name, "New Device");
 					this->device.speed = 0;
-					this->device.binding = 0;
+					this->device.output = 0;
 					for (int i = 0; i < Device::CONDITION_COUNT; ++i)
 						this->device.conditions[i] = {0xff, 0xff};
 					push(ADD_DEVICE);
@@ -404,7 +352,7 @@ void System::updateMenu() {
 		case ADD_DEVICE:
 			{
 				int conditionCount = this->device.getConditionsCount();
-				int addConstraintIndex = DEVICE_CONSTRAINTS_INDEX + conditionCount + (conditionCount < Device::CONDITION_COUNT ? 0 : -1);
+				int addConstraintIndex = DEVICE_CONDITIONS_INDEX + conditionCount + (conditionCount < Device::CONDITION_COUNT ? 0 : -1);
 
 				if (this->selected == 0) {
 					// edit device type
@@ -420,11 +368,11 @@ void System::updateMenu() {
 					
 				} else if (this->selected < 4 + conditionCount) {
 					// edit condition
-					push(SELECT_CONSTRAINT);
+					push(SELECT_CONDITION);
 					this->selected = 0;
 				} else if (this->selected == addConstraintIndex) {
 					// add constriant
-					push(ADD_CONSTRAINT);
+					push(ADD_CONDITION);
 					this->selected = 0;
 				} else if (this->selected == addConstraintIndex + 1) {
 					// save
@@ -441,8 +389,8 @@ void System::updateMenu() {
 				}
 			}
 			break;
-		case SELECT_CONSTRAINT:
-		case ADD_CONSTRAINT:
+		case SELECT_CONDITION:
+		case ADD_CONDITION:
 			{
 				int index = this->selected;
 				
@@ -473,7 +421,7 @@ void System::updateMenu() {
 
 				if (index < 0) {
 					// add new condition to device
-					this->device.conditions[this->selected - DEVICE_CONSTRAINTS_INDEX] = condition;
+					this->device.conditions[this->selected - DEVICE_CONDITIONS_INDEX] = condition;
 				} else {
 					// remove condition from button
 					for (int i = this->selected; i < Device::CONDITION_COUNT - 1; ++i) {
@@ -490,8 +438,8 @@ void System::updateMenu() {
 	bitmap.clear();
 
 	// toast
-	if (!this->string.empty() && this->ticker.getTicks() - this->toastTime < 3000) {
-		const char *name = this->string;
+	if (!this->buffer.empty() && this->ticker.getTicks() - this->toastTime < 3000) {
+		const char *name = this->buffer;
 		int y = 10;
 		int len = tahoma_8pt.calcWidth(name, 1);
 		bitmap.drawText((bitmap.WIDTH - len) >> 1, y, tahoma_8pt, name, 1);
@@ -512,8 +460,8 @@ void System::updateMenu() {
 			int weekday = (time & Clock::WEEKDAY_MASK) >> Clock::WEEKDAY_SHIFT;
 			
 			// display weekday and clock time
-			this->string = weekdays[weekday] , "  " , bcd(hours) , ':' , bcd(minutes, 2) , ':' , bcd(seconds, 2);
-			bitmap.drawText(20, 10, tahoma_8pt, this->string, 1);
+			this->buffer = weekdays[weekday] , "  " , bcd(hours) , ':' , bcd(minutes, 2) , ':' , bcd(seconds, 2);
+			bitmap.drawText(20, 10, tahoma_8pt, this->buffer, 1);
 			
 			// update target temperature
 			int targetTemperature = this->targetTemperature = clamp(this->targetTemperature + delta, 10 << 1, 30 << 1);
@@ -522,150 +470,153 @@ void System::updateMenu() {
 			// get current temperature
 			int currentTemperature = this->temperature.getCurrentValue();
 
-			this->string = decimal(currentTemperature >> 1), (currentTemperature & 1) ? ".5" : ".0" , " oC";
-			bitmap.drawText(20, 30, tahoma_8pt, this->string, 1);
-			this->string = decimal(targetTemperature >> 1), (targetTemperature & 1) ? ".5" : ".0" , " oC";
-			bitmap.drawText(70, 30, tahoma_8pt, this->string, 1);
+			this->buffer = decimal(currentTemperature >> 1), (currentTemperature & 1) ? ".5" : ".0" , " oC";
+			bitmap.drawText(20, 30, tahoma_8pt, this->buffer, 1);
+			this->buffer = decimal(targetTemperature >> 1), (targetTemperature & 1) ? ".5" : ".0" , " oC";
+			bitmap.drawText(70, 30, tahoma_8pt, this->buffer, 1);
 		}
 		break;
 	case MAIN:
+		menu(delta);
+		entry("Switches");
+		entry("Timers");
+		entry("Scenarios");
+		entry("Devices");
+		entry("Exit");
+		break;
+
+	case EVENTS:
 		{
-			menu(delta, 5);
-			entry("Buttons");
-			entry("Timers");
-			entry("Scenarios");
-			entry("Devices");
+			int eventCount = getEventCount(this->u.event.type);
+			menu(delta);
+			
+			if (this->u.event.type == Event::Type::SWITCH) {
+				// list switches
+				for (const Event &event : this->events) {
+					if (event.type == Event::Type::SWITCH) {
+						if (event.input == 0xffffffff) {
+							this->buffer = "(No Input)";
+						} else if (event.input < INPUT_COUNT) {
+							this->buffer = "Motion Detector";
+						} else {
+							this->buffer = hex(event.input), ':', hex(event.value);
+						}
+						entry(this->buffer);
+					}
+				}
+				if (this->events.size() < EVENT_COUNT)
+					entry("Add Switch");
+			} else {
+				// list timers
+				for (const Event &event : this->events) {
+					if (event.type == Event::Type::TIMER) {
+						int minutes = (event.input & Clock::MINUTES_MASK) >> Clock::MINUTES_SHIFT;
+						int hours = (event.input & Clock::HOURS_MASK) >> Clock::HOURS_SHIFT;
+						int weekdays = event.value;
+						this->buffer = bcd(hours) , ':' , bcd(minutes, 2);
+						this->buffer += "    ";
+						entryWeekdays(this->buffer, weekdays);
+					}
+				}
+				if (this->events.size() < EVENT_COUNT)
+					entry("Add Timer");
+			}
 			entry("Exit");
 		}
 		break;
-
-	case BUTTONS:
+	case EDIT_EVENT:
+	case ADD_EVENT:
 		{
-			int buttonCount = buttons.size();
-			menu(delta, buttonCount + 2);
-			
-			// list buttons
-			for (int i = 0; i < buttonCount; ++i) {
-				const Button &button = buttons[i];
-				
-				this->string = hex(button.id), ':', hex(button.state);
-				entry(this->string);
+			int actionCount = this->u.event.getActionCount();
+
+			if (this->edit == 0) {
+				updateSelection(delta);
 			}
-			if (buttonCount < BUTTON_COUNT)
-				entry("Add Button");
-			entry("Exit");
-		}
-		break;
-	case EDIT_BUTTON:
-	case ADD_BUTTON:
-		{
-			int actionCount = this->button.getActionCount();
-			menu(delta, actionCount
-				+ (actionCount < Button::ACTION_COUNT ? 1 : 0)
-				+ 2
-				+ (this->state == EDIT_BUTTON ? 1 : 0));
-			
-			this->string = "Button: ", hex(this->button.id), ':', hex(this->button.state);
-			label(this->string);
-			line();
+			menu();
 
-			// list actions of button
-			for (int i = 0; i < actionCount; ++i) {
-				setAction(this->button.actions[i]);
-				entry(this->string);
+			if (this->u.event.type == Event::Type::SWITCH) {
+				// edit input
+				bool editEntry = isEditEntry();
+				if (editEntry && delta != 0) {
+					this->u.event.input = clamp(int(this->u.event.input) + delta, -1, INPUT_COUNT - 1);
+					this->u.event.value = 0;
+				}
+
+				// switch menu entry
+				this->buffer = "Input: ";
+				int begin = this->buffer.length();
+				if (this->u.event.input == 0xffffffff) {
+					if (editEntry)
+						this->buffer += "Enocean...";
+					else
+						this->buffer += "(No Input)";
+				} else if (this->u.event.input < INPUT_COUNT) {
+					this->buffer += "Motion Detector";
+				} else {
+					this->buffer += hex(this->u.event.input), ':', hex(this->u.event.value);
+				}
+				int end = this->buffer.length();
+				entry(this->buffer, editEntry, begin, end);
+			} else {
+				// time
+				{
+					// get time
+					int hours = (this->u.event.input & Clock::HOURS_MASK) >> Clock::HOURS_SHIFT;
+					int minutes = (this->u.event.input & Clock::MINUTES_MASK) >> Clock::MINUTES_SHIFT;
+
+					// edit time
+					bool editEntry = isEditEntry();
+					if (editEntry) {
+						if (this->edit == 1)
+							hours = Clock::addTime(hours, delta, 0x23);
+						else
+							minutes = Clock::addTime(minutes, delta, 0x59);
+
+						// write back
+						this->u.event.input = (hours << Clock::HOURS_SHIFT) | (minutes << Clock::MINUTES_SHIFT);
+					}
+
+					// time menu entry
+					this->buffer = "Time: ";
+					int begin1 = this->buffer.length();
+					this->buffer += bcd(hours);
+					int end1 = this->buffer.length();
+					this->buffer += ':';
+					int begin2 = this->buffer.length();
+					this->buffer += bcd(minutes, 2);
+					int end2 = this->buffer.length();
+					entry(this->buffer, editEntry, this->edit == 1 ? begin1 : begin2, this->edit == 1 ? end1 : end2);
+				}
+
+				// weekdays
+				{
+					// get weekdays
+					int weekdays = this->u.event.value;
+
+					// edit weekdays
+					bool editEntry = isEditEntry();
+					if (editEntry) {
+						// edit weekday
+						this->edit = max(this->edit + delta, 0);
+						if (this->edit > 7)
+							this->edit = 0;
+					}
+
+					// weekdays menu entry
+					this->buffer = "Days: ";
+					entryWeekdays(this->buffer, weekdays, editEntry, this->edit - 1);
+				}
 			}
-			if (actionCount < Button::ACTION_COUNT)
-				entry("Add Action");
-			line();
-			
-			entry("Save");
-			entry("Cancel");
-			if (this->state == EDIT_BUTTON)
-				entry("Delete Button");
-		}
-		break;
 
-	case TIMERS:
-		{
-			int timerCount = timers.size();
-			menu(delta, timerCount + 2);
+			// list actions of event and add save/cancel entries
+			listActionsSaveCancel();
 
-			// list timers
-			for (int i = 0; i < timerCount; ++i) {
-				const Timer &timer = timers[i];
-				int minutes = (timer.time & Clock::MINUTES_MASK) >> Clock::MINUTES_SHIFT;
-				int hours = (timer.time & Clock::HOURS_MASK) >> Clock::HOURS_SHIFT;
-				int weekdays = (timer.time & Timer::WEEKDAYS_MASK) >> Timer::WEEKDAYS_SHIFT;
-				this->string = bcd(hours) , ':' , bcd(minutes, 2);
-				this->string += "    ";
-				entryWeekdays(this->string, weekdays);
-			}
-			if (timerCount < TIMER_COUNT)
-				entry("Add Timer");
-			entry("Exit");
-		}
-		break;
-	case EDIT_TIMER:
-	case ADD_TIMER:
-		{
-			int actionCount = this->timer.getActionCount();
-			menu(delta, 2 + actionCount
-				+ (actionCount < Timer::ACTION_COUNT ? 1 : 0)
-				+ 2
-				+ (this->state == EDIT_TIMER ? 1 : 0));
-			
-			// get time
-			int hours = (this->timer.time & Clock::HOURS_MASK) >> Clock::HOURS_SHIFT;
-			int minutes = (this->timer.time & Clock::MINUTES_MASK) >> Clock::MINUTES_SHIFT;
-			
-			// edit time
-			if (isSelected() && this->edit > 0) {
-				if (this->edit == 1)
-					hours = Clock::addTime(hours, delta, 0x23);
+			if (this->state == EDIT_EVENT) {
+				if (this->u.event.type == Event::Type::SWITCH)
+					entry("Delete Switch");
 				else
-					minutes = Clock::addTime(minutes, delta, 0x59);
-				
-				// write back
-				this->timer.time = (this->timer.time & ~(Clock::HOURS_MASK | Clock::MINUTES_MASK))
-					| (hours << Clock::HOURS_SHIFT) | (minutes << Clock::MINUTES_SHIFT);
+					entry("Delete Timer");
 			}
-			
-			// time menu entry
-			this->string = "Time: ";
-			int begin1 = this->string.length();
-			this->string += bcd(hours);
-			int end1 = this->string.length();
-			this->string += ':';
-			int begin2 = this->string.length();
-			this->string += bcd(minutes, 2);
-			int end2 = this->string.length();
-			entry(this->string, this->edit == 1 ? begin1 : begin2, this->edit == 1 ? end1 : end2);
-			
-			// weekdays menu entry
-			int weekdays = this->timer.time >> Timer::WEEKDAYS_SHIFT;
-			if (isSelected() && this->edit > 0) {
-				// edit weekday
-				this->edit = max(this->edit + delta, 0);
-				if (this->edit > 7)
-					this->edit = 0;
-			}
-			this->string = "Days: ";
-			entryWeekdays(this->string, weekdays, this->edit - 1);
-			line();
-
-			// list actions of button
-			for (int i = 0; i < actionCount; ++i) {
-				setAction(this->timer.actions[i]);
-				entry(this->string);
-			}
-			if (actionCount < Timer::ACTION_COUNT)
-				entry("Add Action");
-			line();
-			
-			entry("Save");
-			entry("Cancel");
-			if (this->state == EDIT_TIMER)
-				entry("Delete Timer");
 		}
 		break;
 
@@ -673,11 +624,11 @@ void System::updateMenu() {
 		{
 			int scenarioCount = scenarios.size();
 
-			menu(delta, scenarioCount + 2);
+			menu(delta);
 			for (int i = 0; i < scenarioCount; ++i) {
 				const Scenario &scenario = scenarios[i];
-				this->string = scenario.name;
-				entry(this->string);
+				this->buffer = scenario.name;
+				entry(this->buffer);
 			}
 			if (scenarioCount < SCENARIO_COUNT)
 				entry("Add Scenario");
@@ -687,28 +638,16 @@ void System::updateMenu() {
 	case EDIT_SCENARIO:
 	case ADD_SCENARIO:
 		{
-			int actionCount = this->scenario.getActionCount();
+			int actionCount = this->u.scenario.getActionCount();
 
-			menu(delta, 1 + actionCount
-				+ (actionCount < Timer::ACTION_COUNT ? 1 : 0)
-				+ 2
-				+ (this->state == EDIT_SCENARIO ? 1 : 0));
+			menu(delta);
 
-			this->string = "Scenario: ", this->scenario.name;
-			entry(this->string);
-			line();
+			this->buffer = "Name: ", this->u.scenario.name;
+			entry(this->buffer);
 
-			// list actions of scenario
-			for (int i = 0; i < actionCount; ++i) {
-				setAction(this->scenario.actions[i]);
-				entry(this->string);
-			}
-			if (actionCount < Scenario::ACTION_COUNT)
-				entry("Add Action");
-			line();
-
-			entry("Save");
-			entry("Cancel");
+			// list actions of scenario and add save/cancel entries
+			listActionsSaveCancel();
+			
 			if (this->state == EDIT_SCENARIO)
 				entry("Delete Scenario");
 		}
@@ -725,46 +664,48 @@ void System::updateMenu() {
 			}
 			actionCount += this->scenarios.size();
 			
-			menu(delta, actionCount + 1);
+			menu(delta);
 
 			// list all device states and state transitions
 			for (const Device &device : this->devices) {
 				Array<Device::State> states = device.getActionStates();
 				for (int i = 0; i < states.length; ++i) {
-					this->string = device.name, ' ', states[i].name;
-					entry(this->string);
+					this->buffer = device.name, ' ', string(states[i].name);
+					entry(this->buffer);
 				}
 
 				Array<Device::Transition> transitions = device.getTransitions();
 				for (int i = 0; i < transitions.length; ++i) {
 					Device::Transition transition = transitions[i];
-					this->string = device.name, ' ', device.getStateName(transition.fromState), " -> ",
+					this->buffer = device.name, ' ', device.getStateName(transition.fromState), " -> ",
 						device.getStateName(transition.toState);
-					entry(this->string);
+					entry(this->buffer);
 				}
 			}
 			
 			// list all scenarios
 			for (const Scenario &scenario : this->scenarios) {
-				this->string = scenario.name;
-				entry(this->string);
+				this->buffer = scenario.name;
+				entry(this->buffer);
 			}
-			
 			line();
-			entry(this->state == SELECT_ACTION ? "Remove Action" : "Cancel");
+	
+			entry("Cancel");
+			if (this->state == SELECT_ACTION)
+				entry("Remove Action");
 		}
 		break;
 
 	case DEVICES:
 		{
 			int deviceCount = this->devices.size();
-			menu(delta, deviceCount + 2);
+			menu(delta);
 			for (int i = 0; i < deviceCount; ++i) {
 				const Device &device = this->devices[i];
 				DeviceState &deviceState = this->deviceStates[i];
-				this->string = device.name, ": ";
+				this->buffer = device.name, ": ";
 				addDeviceStateToString(device, deviceState);
-				entry(this->string);
+				entry(this->buffer);
 			}
 			entry("Add Device");
 			entry("Exit");
@@ -774,57 +715,76 @@ void System::updateMenu() {
 	case ADD_DEVICE:
 		{
 			int conditionCount = this->device.getConditionsCount();
-			menu(delta, 4 + conditionCount
-				+ (conditionCount < Device::CONDITION_COUNT ? 1 : 0)
-				+ 2
-				+ (this->state == EDIT_DEVICE ? 1 : 0));
+			menu(delta);
 
 			label("Device");
 			line();
 			
-			// edit device type
-			if (isSelected() && this->edit == 1) {
-				int type = clamp(int(device.type) + delta, 0, 2);
-				device.type = Device::Type(type);
+			// device type
+			{
+				bool editEntry = isEditEntry();
+				if (editEntry) {
+					int type = clamp(int(this->device.type) + delta, 0, 2);
+					this->device.type = Device::Type(type);
+				}
+				this->buffer = "Type: ";
+				int begin = this->buffer.length();
+				switch (this->device.type) {
+					case Device::Type::SWITCH:
+						this->buffer += "Switch";
+						break;
+					case Device::Type::LIGHT:
+						this->buffer += "Light";
+						break;
+					case Device::Type::HANDLE:
+						this->buffer += "Handle";
+						break;
+					case Device::Type::BLIND:
+						this->buffer += "Blind";
+						break;
+				}
+				int end = this->buffer.length();
+				entry(this->buffer, editEntry, begin, end);
 			}
-			this->string = "Type: ";
-			int s = this->string.length();
-			switch (this->device.type) {
-			case Device::Type::SWITCH:
-				this->string += "Switch";
-				break;
-			case Device::Type::LIGHT:
-				this->string += "Light";
-				break;
-			case Device::Type::HANDLE:
-				this->string += "Handle";
-				break;
-			case Device::Type::BLIND:
-				this->string += "Blind";
-				break;
-			}
-			int e = this->string.length();
-			entry(this->string, s, e);
-			
-			// edit device name
-			this->string = "Name: ", this->device.name;
-			entry(this->string);
 
-			// edit device state
-			this->string = "State: ";
+			// device name
+			this->buffer = "Name: ", this->device.name;
+			entry(this->buffer);
+
+			// device state
+			this->buffer = "State: ";
 			addDeviceStateToString(device, this->deviceStates[getThisIndex()]);
-			entry(this->string);
+			entry(this->buffer);
 
-			// edit device binding (to local output or enocean device)
-			entry("Binding: ");
+			// device output (to local relay or enocean device)
+			{
+				bool editEntry = isEditEntry();
+				if (editEntry && delta != 0) {
+					this->device.output = clamp(int(this->device.output) + delta, -1, OUTPUT_COUNT - 1);
+				}
+				this->buffer = "Output: ";
+				int begin = this->buffer.length();
+				if (this->device.output == 0xffffffff) {
+					if (editEntry)
+						this->buffer += "Enocean...";
+					else
+						this->buffer += "(No Output)";
+				} else if (this->device.output < OUTPUT_COUNT) {
+					this->buffer += "Output ", int(this->device.output);
+				} else {
+					this->buffer += hex(this->device.output);
+				}
+				int end = this->buffer.length();
+				entry(this->buffer, editEntry, begin, end);
+			}
 
 			line();
 			
-			// list/edit constraints
+			// list/edit conditions
 			uint8_t id = this->device.id;
 			if (conditionCount > 0 && this->device.conditions[0].id != id) {
-				this->string = this->device.getStates()[0].name, " when";
-				label(this->string);
+				this->buffer = string(this->device.getStates()[0].name), " when";
+				label(this->buffer);
 			}
 			bool noEffect = false;
 			for (int i = 0; i < conditionCount; ++i) {
@@ -833,24 +793,27 @@ void System::updateMenu() {
 				if (condition.id == id) {
 					// check if constrained state is at last position
 					bool last = (i == conditionCount - 1) || this->device.conditions[i + 1].id == id;
-					noEffect |= last && i == 0;
-					
-					this->string.clear();
-					if (!noEffect) {
-						if (last)
-							this->string = "Else ";
-						this->string += this->device.getStateName(condition.state);
-						if (!last)
-							this->string += " When";
+
+					this->buffer.clear();
+					String stateName = this->device.getStateName(condition.state);
+					if (last && i == 0) {
+						this->buffer += "Initial ", stateName;
 					} else {
-						this->string += '(', this->device.getStateName(condition.state), ')';
+						if (!noEffect) {
+							if (last)
+								this->buffer += "Else ";
+							this->buffer += stateName;
+							if (!last)
+								this->buffer += " When";
+						} else {
+							this->buffer += '(', stateName, ')';
+						}
 					}
-					
 					noEffect |= last;
 				} else {
 					setConstraint(this->device.conditions[i]);
 				}
-				entry(this->string);
+				entry(this->buffer);
 			}
 			if (conditionCount < Device::CONDITION_COUNT)
 				entry("Add Condition");
@@ -862,8 +825,8 @@ void System::updateMenu() {
 				entry("Delete Device");
 		}
 		break;
-	case SELECT_CONSTRAINT:
-	case ADD_CONSTRAINT:
+	case SELECT_CONDITION:
+	case ADD_CONDITION:
 		{
 			// get number of selectable actions
 			int conditionCount = 0;
@@ -874,14 +837,14 @@ void System::updateMenu() {
 					conditionCount += device.getStates().length;
 			}
 			
-			menu(delta, conditionCount + 1);
+			menu(delta);
 
 			// list "own" device states
 			{
 				Array<Device::State> states = this->device.getActionStates();
 				for (int i = 0; i < states.length; ++i) {
-					this->string = states[i].name;
-					entry(this->string);
+					this->buffer = string(states[i].name);
+					entry(this->buffer);
 				}
 			}
 			line();
@@ -891,64 +854,72 @@ void System::updateMenu() {
 				if (device.id != this->device.id) {
 					Array<Device::State> states = device.getStates();
 					for (int i = 0; i < states.length; ++i) {
-						this->string = device.name, ' ', states[i].name;
-						entry(this->string);
+						this->buffer = device.name, ' ', string(states[i].name);
+						entry(this->buffer);
 					}
 				}
 			}
 			
 			line();
-			entry(this->state == SELECT_CONSTRAINT ? "Remove Condition" : "Cancel");
+			entry(this->state == SELECT_CONDITION ? "Remove Condition" : "Cancel");
 		}
 		break;
 	}
-	this->string.clear();
+	this->buffer.clear();
 }
 	
-void System::onButton(uint32_t id, uint8_t state) {
+void System::onSwitch(uint32_t input, uint8_t state) {
 	switch (this->state) {
-	case BUTTONS:
-		// select button from list
-		{
-			int buttonCount = buttons.size();
-			for (int i = 0; i < buttonCount; ++i) {
-				const Button &button = buttons[i];
-				if (button.id == id && button.state == state) {
-					this->selected = i;
-					this->button = buttons[i];
-					push(EDIT_BUTTON);
-					break;
+	case IDLE:
+		// do first action of switch with given input/state
+		for (const Event &event : this->events) {
+			if (event.type == Event::Type::SWITCH) {
+				if (event.input == input && event.value == state) {
+					doFirstActionAndToast(event);
 				}
 			}
 		}
 		break;
-	case ADD_BUTTON:
-		// set id/state of button
-		{
-			// check if button already exists to prevent duplicates
-			for (int i = 0; i < buttons.size(); ++i) {
-				const Button &button = buttons[i];
-				if (button.id == id && button.state == state) {
-					// display message
-					toast() = hex(id), ':', decimal(state), " not new";
-					return;
+	case EVENTS:
+		if (input != INPUT_MOTION_DETECTOR) {
+			// check if switch already exists and enter edit menu
+			int index = 0;
+			for (const Event &event : this->events) {
+				if (event.type == Event::Type::SWITCH) {
+					if (event.input == input && event.value == state) {
+						this->selected = index;
+						this->u.event = event;
+						push(EDIT_EVENT);
+						break;
+					}
+					++index;
 				}
 			}
-
-			this->button.id = id;
-			this->button.state = state;
+		}
+		break;
+	case EDIT_EVENT:
+	case ADD_EVENT:
+		// set input/state of switch if it is currently edited
+		if (this->u.event.type == Event::Type::SWITCH) {
+			if (this->selected == 0 && this->edit > 0 && this->u.event.input != INPUT_MOTION_DETECTOR) {
+				this->u.event.input = input;
+				this->u.event.value = state;
+			}
 		}
 		break;
 	default:
 		;
 	}
+
 }
 
 
 // actions
 // -------
 
-Action System::doFirstAction(const Action *actions, int count) {
+Action System::doFirstAction(const Event &event) {
+	const Action *actions = event.actions;
+	int count = event.getActionCount();
 	for (int i = 0; i < count; ++i) {
 		Action action = actions[i];
 		if (action.state != Action::SCENARIO) {
@@ -992,6 +963,12 @@ Action System::doFirstAction(const Action *actions, int count) {
 		}
 	}
 	return {0xff, 0xff};
+}
+
+void System::doFirstActionAndToast(const Event &event) {
+	Action action = doFirstAction(event);
+	setAction(action);
+	toast();
 }
 
 bool System::doAllActions(const Action *actions, int count) {
@@ -1062,17 +1039,17 @@ bool System::doAllActions(const Action *actions, int count) {
 
 // set temp string with action (device/state, device/transition or scenario)
 void System::setAction(Action action) {
-	this->string.clear();
+	this->buffer.clear();
 	if (action.state != Action::SCENARIO) {
 		// device
 		for (const Device &device : this->devices) {
 			if (device.id == action.id) {
-				this->string += device.name, ' ';
+				this->buffer += device.name, ' ';
 				if (action.state < Action::TRANSITION_START) {
-					this->string += device.getStateName(action.state);
+					this->buffer += device.getStateName(action.state);
 				} else {
 					auto transition = device.getTransitions()[action.state - Action::TRANSITION_START];
-					this->string += device.getStateName(transition.fromState), " -> ",
+					this->buffer += device.getStateName(transition.fromState), " -> ",
 						device.getStateName(transition.toState);
 				}
 			}
@@ -1081,39 +1058,66 @@ void System::setAction(Action action) {
 		// scenario
 		for (const Scenario &scenario : scenarios) {
 			if (scenario.id == action.id)
-				this->string = scenario.name;
+				this->buffer = scenario.name;
 		}
 	}
 }
 
+void System::listActionsSaveCancel() {
+	line();
+
+	int actionCount = this->u.actions.getActionCount();
+	for (int i = 0; i < actionCount; ++i) {
+		setAction(this->u.actions.actions[i]);
+		entry(this->buffer);
+	}
+	if (actionCount < Scenario::ACTION_COUNT)
+		entry("Add Action");
+	line();
+
+	entry("Save");
+	entry("Cancel");
+}
+
 // set temp string with condition (device/state)
 void System::setConstraint(Action action) {
-	this->string = '\t';
+	this->buffer = '\t';
 	for (const Device &device : this->devices) {
 		if (device.id == action.id) {
-			this->string += device.name, ' ';
-			this->string += device.getStateName(action.state);
+			this->buffer += device.name, ' ';
+			this->buffer += device.getStateName(action.state);
 		}
 	}
 }
 
 	
-// buttons
-// -------
+// events
+// ------
 
-const Button *System::findButton(uint32_t id, uint8_t state) {
-	for (int i = 0; i < buttons.size(); ++i) {
-		const Button &button = buttons[i];
-		if (button.id == id && button.state == state)
-			return &button;
+int System::getEventCount(Event::Type type) {
+	int count = 0;
+	for (const Event &event : this->events) {
+		if (event.type == type)
+			++count;
 	}
-	return nullptr;
+	return count;
+}
+
+const Event &System::getEvent(Event::Type type, int index) {
+	int count = 0;
+	for (const Event &event : this->events) {
+		if (event.type == type) {
+			if (count == index)
+				return event;
+			++count;
+		}
+	}
 }
 
 
 // scenarios
 // ---------
-
+/*
 const Scenario *System::findScenario(uint8_t id) {
 	for (int i = 0; i < scenarios.size(); ++i) {
 		const Scenario &scenario = scenarios[i];
@@ -1122,14 +1126,13 @@ const Scenario *System::findScenario(uint8_t id) {
 	}
 	return nullptr;
 }
-
+*/
 uint8_t System::newScenarioId() {
 	return newId(this->scenarios);
 }
 
 void System::deleteScenarioId(uint8_t id) {
-	deleteId(this->buttons, id);
-	deleteId(this->timers, id);
+	deleteId(this->events, id);
 }
 
 
@@ -1146,38 +1149,39 @@ bool System::isDeviceStateActive(uint8_t id, uint8_t state) {
 	return false;
 }
 
-void System::applyConstraints(const Device &device, DeviceState &deviceState) {
+void System::applyConditions(const Device &device, DeviceState &deviceState) {
 	int conditionCount = device.getConditionsCount();
 	uint8_t state = 0;
 	bool active = false;
 	if (conditionCount > 0 && device.conditions[0].id != device.id) {
-		// use default state if constraints don't start with a constrained state
+		// use default state if conditions don't start with a state of this device
 		state = device.getActionStates()[0].state;
 		active = true;
 	}
 	for (int i = 0; i < conditionCount; ++i) {
 		Device::Condition condition = device.conditions[i];
 		
+		// check if entry is a state of this device or a condition
 		if (condition.id == device.id) {
-			// next constrained state: check if current state is active
+			// next state: check if current condition is active
 			if (active) {
-				if (deviceState.condition != i) {
+				if (deviceState.condition != state) {
 					deviceState.setState(device, state);
-					deviceState.condition = i;
+					deviceState.condition = state;
 				}
 				return;
 			}
 			state = condition.state;
 			active = true;
 		} else {
-			// check if all referenced states are active
+			// check if all device states of the current condition are active
 			active &= isDeviceStateActive(condition.id, condition.state);
 		}
 	}
 	if (active) {
-		if (deviceState.condition != conditionCount) {
+		if (deviceState.condition != state) {
 			deviceState.setState(device, state);
-			deviceState.condition = conditionCount;
+			deviceState.condition = state;
 		}
 	} else {
 		deviceState.condition = 0xff;
@@ -1190,9 +1194,9 @@ void System::addDeviceStateToString(const Device &device, DeviceState &deviceSta
 		auto &state = states[i];
 		if (deviceState.isActive(device, state.state)) {
 			if (state.state == Device::VALUE)
-				this->string += deviceState.state;
+				this->buffer += deviceState.state;
 			else
-				this->string += state.name;
+				this->buffer += string(state.name);
 			break;
 		}
 	}
@@ -1203,8 +1207,7 @@ uint8_t System::newDeviceId() {
 }
 
 void System::deleteDeviceId(uint8_t id) {
-	deleteId(this->buttons, id);
-	deleteId(this->timers, id);
+	deleteId(this->events, id);
 	deleteId(this->scenarios, id);
 
 	// delete device id from device constraints
@@ -1233,22 +1236,22 @@ void System::deleteDeviceId(uint8_t id) {
 // menu
 // ----
 
-void System::menu(int delta, int entryCount) {
+void System::updateSelection(int delta) {
+	// update selected according to delta motion of poti
+	this->selected += delta;
+	if (this->selected < 0) {
+		this->selected = 0;
+
+		// also clear yOffset in case the menu has a non-selectable header
+		this->yOffset = 0;
+	} else if (this->selected >= this->entryIndex) {
+		this->selected = this->entryIndex - 1;
+	}
+}
+
+void System::menu() {
 	const int lineHeight = tahoma_8pt.height + 4;
 
-	// update selected according to delta motion of poti
-	if (this->edit == 0) {
-		this->selected += delta;
-		if (this->selected < 0) {
-			this->selected = 0;
-			
-			// also clear yOffset in case the menu has a non-selectable header
-			this->yOffset = 0;
-		} else if (this->selected >= entryCount) {
-			this->selected = entryCount - 1;
-		}
-	}
-	
 	// adjust yOffset so that selected entry is visible
 	int upper = this->selectedY;//this->selected * lineHeight;
 	int lower = upper + lineHeight;
@@ -1275,48 +1278,53 @@ void System::line() {
 	this->entryY += 1 + 4;
 }
 
-void System::entry(const char* s, int editBegin, int editEnd) {
+void System::entry(const char* s, bool underline, int begin, int end) {
 	int x = 10;
 	int y = this->entryY + 2 - this->yOffset;//this->entryIndex * lineHeight + 2 - this->yOffset;
 	this->bitmap.drawText(x, y, tahoma_8pt, s, 1);
 	if (this->entryIndex == this->selected) {
 		this->bitmap.drawText(0, y, tahoma_8pt, ">", 0);
-		if (this->edit > 0) {
-			int start = tahoma_8pt.calcWidth(s, editBegin, 1);
-			int width = tahoma_8pt.calcWidth(s + editBegin, editEnd - editBegin, 1);
-			this->bitmap.fillRectangle(x + start, y + tahoma_8pt.height, width, 1);
-		}
 		this->lastSelected = this->selected;
 		this->selectedY = this->entryY;
+	}
+	if (underline) {
+		int start = tahoma_8pt.calcWidth(s, begin, 1);
+		int width = tahoma_8pt.calcWidth(s + begin, end - begin, 1) - 1;
+		this->bitmap.hLine(x + start, y + tahoma_8pt.height, width);
 	}
 
 	++this->entryIndex;
 	this->entryY += tahoma_8pt.height + 4;
 }
 
-void System::entryWeekdays(const char* s, int weekdays, int index) {
+void System::entryWeekdays(const char* s, int weekdays, bool underline, int index) {
 	int x = 10;
 	int y = this->entryY + 2 - this->yOffset;
+
+	// text (e.g. time)
 	int x2 = this->bitmap.drawText(x, y, tahoma_8pt, s, 1) + 1;
-	int start;
-	int width;
+	int start = x;
+	int width = x2 - x;
+
+	// week days
 	for (int i = 0; i < 7; ++i) {
-		bool enabled = weekdays & (1 << i);
 		int x3 = this->bitmap.drawText(x2 + 1, y, tahoma_8pt, weekdaysShort[i], 1);
-		if (enabled)
+		if (weekdays & 1)
 			this->bitmap.fillRectangle(x2, y, x3 - x2, tahoma_8pt.height - 1, Mode::FLIP);
 		if (i == index) {
 			start = x2;
 			width = x3 - x2;
 		}
 		x2 = x3 + 4;
+		weekdays >>= 1;
 	}
 	if (this->entryIndex == this->selected) {
 		this->bitmap.drawText(0, y, tahoma_8pt, ">", 1);
-		if (this->edit > 0)
-			this->bitmap.fillRectangle(start, y + tahoma_8pt.height, width, 1);
 		this->lastSelected = this->selected;
 		this->selectedY = this->entryY;
+	}
+	if (underline) {
+		this->bitmap.hLine(start, y + tahoma_8pt.height, width);
 	}
 
 	++this->entryIndex;
@@ -1330,6 +1338,9 @@ void System::push(State state) {
 	this->selectedY = 0;
 	this->lastSelected = -1;
 	this->yOffset = 0;
+
+	// set entryIndex to a large value so that we can pre-select an entry and "survive" first call to updateSelection()
+	this->entryIndex = 0xffff;
 }
 
 void System::pop() {
@@ -1338,4 +1349,7 @@ void System::pop() {
 	this->selected = this->stack[this->stackIndex].selected;
 	this->selectedY = this->stack[this->stackIndex].selectedY;
 	this->yOffset = this->stack[this->stackIndex].yOffset;
+
+	// set entryIndex to a large value so that the value of selected "survives" first call to updateSelection()
+	this->entryIndex = 0xffff;
 }

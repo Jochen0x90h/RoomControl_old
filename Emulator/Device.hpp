@@ -37,7 +37,7 @@ struct Device {
 	using Condition = Action;
 
 	struct State {
-		String name;
+		const char *name;
 		uint8_t state;
 	};
 	
@@ -85,8 +85,8 @@ struct Device {
 	// speed to reach target value
 	uint16_t speed;
 
-	// binding to local output or enocean node
-	uint32_t binding;
+	// output, either local relay or enocean node id
+	uint32_t output;
 
 	// the output is on if all devices are in the given states
 	Condition conditions[CONDITION_COUNT];

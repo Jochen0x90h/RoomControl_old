@@ -3,9 +3,9 @@
 #include "Action.hpp"
 
 
-struct Scenario {
+struct Scenario : public Actions {
 	// maximum number of actions per scenario
-	static const int ACTION_COUNT = 8;
+	//static const int ACTION_COUNT = 8;
 
 	// unique id of scenario, used by buttons and timers
 	uint8_t id;
@@ -14,8 +14,8 @@ struct Scenario {
 	char name[16];
 
 	// list of actions, the first feasible action gets executed
-	Action actions[ACTION_COUNT];
-
+	//Action actions[ACTION_COUNT];
+/*
 	int getActionCount() const {
 		for (int i = 0; i < ACTION_COUNT; ++i) {
 			if (!this->actions[i].isValid())
@@ -23,4 +23,5 @@ struct Scenario {
 		}
 		return ACTION_COUNT;
 	}
+*/
 };

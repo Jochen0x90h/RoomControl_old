@@ -88,17 +88,17 @@ int DeviceState::update(const Device &device, int ticks) {
 		}
 	}
 	
-	// check if device drives an internal output
-	if (device.binding < 16) {
+	// check if device outputs to internal relays and return their bits
+	if (device.output < 16) {
 		switch (device.type) {
 		case Device::Type::SWITCH:
 		case Device::Type::LIGHT:
-			return (this->state == 100 ? 1 : 0) << device.binding;
+			return (this->state == 100 ? 1 : 0) << device.output;
 		case Device::Type::DIMMER:
 			// can't drive internal output
 			break;
 		case Device::Type::BLIND:
-			return ((this->interpolator < s ? 1 : 0) | (this->interpolator > s ? 2 : 0)) << device.binding;
+			return ((this->interpolator < s ? 1 : 0) | (this->interpolator > s ? 2 : 0)) << device.output;
 		case Device::Type::HANDLE:
 			// can't drive internal output
 			break;

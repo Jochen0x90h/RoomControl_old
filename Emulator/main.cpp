@@ -46,27 +46,24 @@ static void mouseCallback(GLFWwindow* window, int button, int action, int mods) 
 #define NO_ACTION_6 NO_ACTION_5, {0xff, 0xff}
 #define NO_ACTION_7 NO_ACTION_6, {0xff, 0xff}
 #define NO_ACTION_8 NO_ACTION_7, {0xff, 0xff}
-Button buttonsData[] = {
-	{0xfef3ac9b, 0x10, {{0, Device::ON}, {0, Device::OFF}, NO_ACTION_6}}, // bottom left
-	{0xfef3ac9b, 0x30, {{1, Device::OFF}, {0, Action::SCENARIO}, NO_ACTION_6}}, // top left
-	{0xfef3ac9b, 0x50, {{4, Device::STOP}, {4, Device::MOVE}, NO_ACTION_6}}, // bottom right
-	{0xfef3ac9b, 0x70, {{5, Device::CLOSED}, {5, Device::OPEN}, NO_ACTION_6}}, // top right
-};
+Event eventsData[] = {
+	{{{{0, Device::ON}, {0, Device::OFF}, NO_ACTION_6}}, Event::Type::SWITCH, 0x10, 0xfef3ac9b}, // bottom left
+	{{{{1, Device::OFF}, {0, Action::SCENARIO}, NO_ACTION_6}}, Event::Type::SWITCH, 0x30, 0xfef3ac9b}, // top left
+	{{{{4, Device::STOP}, {4, Device::MOVE}, NO_ACTION_6}}, Event::Type::SWITCH, 0x50, 0xfef3ac9b}, // bottom right
+	{{{{5, Device::CLOSED}, {5, Device::OPEN}, NO_ACTION_6}}, Event::Type::SWITCH, 0x70, 0xfef3ac9b}, // top right
 /*
-Button buttonsData[] = {
-	{0xfef3ac9b, 0x10, {{0, Action::SET_TRANSITION_START + 0}, {0, Action::SET_TRANSITION_START + 1}, NO_ACTION_6}}, // bottom left
-	{0xfef3ac9b, 0x30, {{1, Action::SET_TRANSITION_START + 0}, {1, Action::SET_TRANSITION_START + 1}, NO_ACTION_6}}, // top left
-	{0xfef3ac9b, 0x50, {{4, 100}, NO_ACTION_7}}, // bottom right
-	{0xfef3ac9b, 0x70, {{4, 0}, NO_ACTION_7}}, // top right
-};
+	{0xfef3ac9b, Event::Type::SWITCH, 0x10, {{0, Action::SET_TRANSITION_START + 0}, {0, Action::SET_TRANSITION_START + 1}, NO_ACTION_6}}, // bottom left
+	{0xfef3ac9b, Event::Type::SWITCH, 0x30, {{1, Action::SET_TRANSITION_START + 0}, {1, Action::SET_TRANSITION_START + 1}, NO_ACTION_6}}, // top left
+	{0xfef3ac9b, Event::Type::SWITCH, 0x50, {{4, 100}, NO_ACTION_7}}, // bottom right
+	{0xfef3ac9b, Event::Type::SWITCH, 0x70, {{4, 0}, NO_ACTION_7}}, // top right
 */
-Timer timersData[] = {
-	{Clock::time(22, 41) | Timer::SUNDAY, {{2, Device::ON}, NO_ACTION_7}},
-	{Clock::time(10, 0) | Timer::MONDAY, {{3, Device::ON}, NO_ACTION_7}}
+	{{{{2, Device::ON}, NO_ACTION_7}}, Event::Type::TIMER, Event::SUNDAY, Clock::time(22, 41)},
+	{{{{2, Device::ON}, NO_ACTION_7}}, Event::Type::TIMER, Event::THURSDAY, Clock::time(22, 41)},
+	{{{{3, Device::ON}, NO_ACTION_7}}, Event::Type::TIMER, Event::MONDAY, Clock::time(10, 0)}
 };
 
 Scenario scenariosData[] = {
-	{0, "Lights On", {{0, Device::ON}, {1, Device::ON}, {2, Device::ON}, {3, Device::ON}, NO_ACTION_4}},
+	{{{{0, Device::ON}, {1, Device::ON}, {2, Device::ON}, {3, Device::ON}, NO_ACTION_4}}, 0, "Lights On"},
 };
 
 Device devicesData[] = {
@@ -97,14 +94,16 @@ int main(int argc, const char **argv) {
 		return 1;
 	}
 	
-	// erase flash
-	for (int i = 0; i < Flash::PAGE_COUNT; ++i) {
-		Flash::erase(i);
-	}
+	std::cout << "sizeof(Event): " << sizeof(Event) << std::endl;
+	std::cout << "sizeof(Scenario): " << sizeof(Scenario) << std::endl;
+	std::cout << "sizeof(Device): " << sizeof(Device) << std::endl;
+
+	// erase emulated flash
+	memset(Flash::data, 0xff, sizeof(Flash::data));
 
 	// read flash contents from file
 	std::ifstream is("flash.bin", std::ios::binary);
-	//is.read((char*)Flash::data, sizeof(Flash::data));
+	is.read((char*)Flash::data, sizeof(Flash::data));
 	is.close();
 
 	// get device from command line
@@ -138,11 +137,11 @@ int main(int argc, const char **argv) {
 	glfwSwapInterval(0);
 
 	System system(device);
+	Display display;
 
 	// default initialize arrays if empty
-	if (system.buttons.size() == 0) {
-		system.buttons.assign(buttonsData);
-		system.timers.assign(timersData);
+	if (system.events.size() == 0) {
+		system.events.assign(eventsData);
 		system.scenarios.assign(scenariosData);
 		system.devices.assign(devicesData);
 		//system.outputs.assign(outputsData);
@@ -156,14 +155,19 @@ int main(int argc, const char **argv) {
 	float y = 0.1f;
 
 	// display
-	layoutManager.add(&system.display);
-	system.display.setRect(0.3f, y, 0.4f, 0.2f);
+	layoutManager.add(&display);
+	display.setRect(0.3f, y, 0.4f, 0.2f);
 
 	y += 0.3f;
 
-	// potis
+	// poti
 	layoutManager.add(&system.poti);
 	system.poti.setRect(0.2f, y, 0.25f, 0.25f);
+
+	// motion detector
+	layoutManager.add(&system.motionDetector);
+	system.motionDetector.setRect(0.55f, y + 0.05, 0.15f, 0.15f);
+
 	//Poti poti2;
 	//layoutManager.add(&poti2);
 	//poti2.setRect(0.55f, y, 0.25f, 0.25f);
@@ -190,8 +194,12 @@ int main(int argc, const char **argv) {
 		// mouse
 		layoutManager.doMouse(window);
 		
+		// update system
 		system.update();
-		
+
+		// update display
+		display.update(system.bitmap);
+
 		// check if device widgets still match system devices
 		int deviceCount = system.devices.size();
 		bool newDeviceWidgets = devices.size() != deviceCount;

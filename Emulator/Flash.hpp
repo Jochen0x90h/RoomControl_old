@@ -6,14 +6,13 @@
 class Flash {
 public:
 	static const int PAGE_SIZE = 1024;
-	static const int PAGE_COUNT = 32;
+	static const int PAGE_OFFSET = 16;
+	static const int PAGE_COUNT = 16;
 	static const int WRITE_ALIGN = 2;
 
 	static uint32_t data[PAGE_COUNT * (PAGE_SIZE >> 2)];
 
-	static uint32_t *getAddress(uint8_t pageIndex) {
-		return data + pageIndex * (PAGE_SIZE >> 2);
-	}
+	static uint32_t *getAddress(uint8_t pageIndex);
 
 	static bool isEmpty(uint8_t pageIndex) {
 		uint32_t *page = getAddress(pageIndex);

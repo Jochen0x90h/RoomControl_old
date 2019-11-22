@@ -20,8 +20,8 @@ Temperature::Temperature()
 		"	float yt = (xy.y - targetValue);"
 		"	pixel = (yt + x < 0 && yt - x > 0) || (yc + x > 0 && yc - x < 0) ? vec4(1.0, 1.0, 1.0, 1) : vec4(state, 1);\n"
 		"}\n")
-	, currentValue((maxValue + minValue) >> 1)
 	, targetValue((maxValue + minValue) >> 1)
+	, currentValue((maxValue + minValue) >> 1)
 {
 	// get uniform locations
 	this->targetValueLocation = glGetUniformLocation(this->program, "targetValue");

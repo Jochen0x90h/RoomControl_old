@@ -36,17 +36,34 @@ protected:
 	};
 	
 	struct Header {
+		// index of array to modify
 		uint8_t arrayIndex;
+		
+		// operation
 		uint8_t op;
+		
+		// element index to modify
 		uint8_t index;
+		
+		// operation dependent value
+		// OVERWRITE, ERASE: element count
+		// MOVE: destination index
 		uint8_t value;
 	};
 
 	struct ArrayData {
+		// next array in a linked list
 		ArrayData *next;
+		
+		// index of array
 		uint8_t index;
-		uint8_t elementSize; // divided by 4
+		
+		// element size divided by 4
+		uint8_t elementSize;
+		
 		uint8_t maxCount;
+		
+		// number of elements in array
 		uint8_t count;
 		uint32_t **elements;
 	};

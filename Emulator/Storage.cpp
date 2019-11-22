@@ -5,7 +5,7 @@
 
 void Storage::init() {
 	// detect current pages
-	uint32_t *p = Flash::getAddress(pageStart);
+	uint32_t *p = Flash::getAddress(this->pageStart);
 	int pageStart = this->pageStart;
 	int pageCount = this->pageCount;
 	int pageStart2 = pageStart + pageCount;
@@ -39,9 +39,11 @@ void Storage::init() {
 		
 		// get array
 		ArrayData *arrayData = this->first;
-		int count = this->count;
-		for (int i = count - 1; i > header->arrayIndex; --i)
+		int arrayIndex = this->count - 1;
+		while (arrayIndex > header->arrayIndex) {
+			--arrayIndex;
 			arrayData = arrayData->next;
+		};
 		
 		// execute operation
 		int op = header->op;

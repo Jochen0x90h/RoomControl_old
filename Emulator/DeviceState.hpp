@@ -10,7 +10,7 @@ public:
 	void init(const Device &device) {
 		this->state = this->lastState = 0;//device.state;
 		this->interpolator = 0;//device.state << 16;
-		this->condition = 0xff;
+		this->condition = 0;
 	}
 
 	/**

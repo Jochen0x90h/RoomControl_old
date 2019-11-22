@@ -4,30 +4,28 @@
 #include "Bitmap.hpp"
 #include "Display.hpp"
 #include "Poti.hpp"
+#include "MotionDetector.hpp"
 #include "Temperature.hpp"
 #include "Storage.hpp"
 #include "Clock.hpp"
 #include "DeviceState.hpp"
 #include "Scenario.hpp"
-#include "Button.hpp"
-#include "Timer.hpp"
+#include "Event.hpp"
 #include "String.hpp"
 #include "Ticker.hpp"
 
 
-static const int BUTTON_COUNT = 32;
-static const int TIMER_COUNT = 32;
+static const int EVENT_COUNT = 32;
 static const int SCENARIO_COUNT = 32;
 static const int DEVICE_COUNT = 32;
 
 
-class System : public EnOceanProtocol {
+class System {
 public:
 
 	System(Serial::Device device);
 	
-	void onPacket(uint8_t packetType, const uint8_t *data, int length, const uint8_t *optionalData, int optionalLength)
-		override;
+	void onPacket(uint8_t packetType, const uint8_t *data, int length, const uint8_t *optionalData, int optionalLength);
 	
 	void update();
 	
@@ -36,16 +34,11 @@ public:
 		IDLE,
 		MAIN,
 		
-		// buttons
-		BUTTONS,
-		EDIT_BUTTON,
-		ADD_BUTTON,
-		
-		// timers
-		TIMERS,
-		EDIT_TIMER,
-		ADD_TIMER,
-		
+		// events
+		EVENTS,
+		EDIT_EVENT,
+		ADD_EVENT,
+
 		// scenarios
 		SCENARIOS,
 		EDIT_SCENARIO,
@@ -59,16 +52,9 @@ public:
 		DEVICES,
 		EDIT_DEVICE,
 		ADD_DEVICE,
-		SELECT_CONSTRAINT,
-		ADD_CONSTRAINT,
+		SELECT_CONDITION,
+		ADD_CONDITION,
 
-		// outputs
-		//OUTPUTS,
-		//EDIT_OUTPUT,
-		//SELECT_DEVICE_STATE,
-		
-		//ACTORS,
-		//SELECT_SCENARIO,
 		HEATING
 	};
 
@@ -76,20 +62,19 @@ public:
 
 	void updateMenu();
 	
-	void onButton(uint32_t id, uint8_t state);
+	void onSwitch(uint32_t input, uint8_t state);
 	
 	StringBuffer<32> &toast() {
 		this->toastTime = this->ticker.getTicks();
-		return this->string;
+		return this->buffer;
 	}
 
 	
-	// 128x64 display
-	Bitmap<128, 64> bitmap;
-	Display display;
-
-	// digital potentiometer
+	// digital potentiometer with switch
 	Poti poti;
+
+	// motion detector
+	MotionDetector motionDetector;
 
 	// wall clock time including weekday
 	Clock clock;
@@ -99,33 +84,43 @@ public:
 	Ticker ticker;
 	uint32_t lastTicks = 0;
 
-
-	// temperature
-	// -----------
-	
+	// temperature sensor
 	Temperature temperature;
 	uint16_t targetTemperature = 12 << 1;
-
-
-	// flash storage
-	// -------------
-	
+ 
+	// connection to enocean module
+	EnOceanProtocol protocol;
+ 
+	// flash storage for events, scenarios and devices
 	Storage storage;
-	Storage::Array<Button, BUTTON_COUNT> buttons;
-	Storage::Array<Timer, TIMER_COUNT> timers;
+
+	// events
+	Storage::Array<Event, EVENT_COUNT> events;
+	uint32_t eventStates[(EVENT_COUNT + 31) / 32];
+
+	// scenarios
 	Storage::Array<Scenario, SCENARIO_COUNT> scenarios;
+
+	// devices
 	Storage::Array<Device, DEVICE_COUNT> devices;
-	
+	DeviceState deviceStates[DEVICE_COUNT];
+
+	// 128x64 display
+	Bitmap<128, 64> bitmap;
+
 
 	// actions
 	// -------
 	
-	Action doFirstAction(const Action *actions, int count);
+	Action doFirstAction(const Event &event);
+	void doFirstActionAndToast(const Event &event);
 
 	bool doAllActions(const Action *actions, int count);
 	
 	// set temp string with action (device/state, device/transition or scenario)
 	void setAction(Action action);
+
+	void listActionsSaveCancel();
 
 	// set temp string with constraint (device/state)
 	void setConstraint(Action action);
@@ -174,16 +169,18 @@ public:
 	}
 	
 
-	// buttons
-	// -------
+	// events
+	// --------
 	
-	const Button *findButton(uint32_t id, uint8_t state);
-	
+	int getEventCount(Event::Type type);
+
+	const Event &getEvent(Event::Type type, int index);
+
 
 	// scenarios
 	// ---------
 
-	const Scenario *findScenario(uint8_t id);
+	//const Scenario *findScenario(uint8_t id);
 
 	uint8_t newScenarioId();
 	
@@ -191,12 +188,10 @@ public:
 	
 	// devices
 	// -------
-	
-	DeviceState deviceStates[DEVICE_COUNT];
 
 	bool isDeviceStateActive(uint8_t id, uint8_t state);
 
-	void applyConstraints(const Device &device, DeviceState &deviceState);
+	void applyConditions(const Device &device, DeviceState &deviceState);
 
 	void addDeviceStateToString(const Device &device, DeviceState &deviceState);
 	
@@ -207,20 +202,27 @@ public:
 	// menu
 	// ----
 
-	void menu(int delta, int entryCount);
-	
+	void updateSelection(int delta);
+
+	void menu();
+	void menu(int delta) {updateSelection(delta); menu();}
+
 	void label(const char* s);
 
 	void line();
 	
-	void entry(const char* s, int editBegin = 0, int editEnd = 0);
+	void entry(const char* s, bool underline = false, int begin = 0, int end = 0);
 
-	void entryWeekdays(const char* s, int weekdays, int index = 0);
+	void entryWeekdays(const char* s, int weekdays, bool underline = false, int index = 0);
 	
-	bool isSelected() {
+	bool isSelectedEntry() {
 		return this->entryIndex == this->selected;
 	}
-	
+
+	bool isEditEntry() {
+		return this->entryIndex == this->selected && this->edit > 0;
+	}
+
 	void push(State state);
 	
 	void pop();
@@ -246,7 +248,7 @@ public:
 	
 	// menu display state
 	int yOffset = 0;
-	int entryIndex;
+	int entryIndex = 0xffff;
 	int entryY;
 	
 	// menu stack
@@ -258,11 +260,13 @@ public:
 	uint32_t toastTime;
 	
 	// temporary string buffer
-	StringBuffer<32> string;
+	StringBuffer<32> buffer;
 	
 	// temporary objects
-	Button button;
-	Timer timer;
-	Scenario scenario;
+	union {
+		Actions actions;
+		Event event;
+		Scenario scenario;
+	} u;
 	Device device;
 };

@@ -1,7 +1,8 @@
 #include "EnOceanProtocol.hpp"
+#include "util.hpp"
 
 
-void EnOceanProtocol::update() {
+bool EnOceanProtocol::update() {
 	this->serial.update();
 	
 	int receivedCount = serial.getReceivedCount();
@@ -13,26 +14,32 @@ void EnOceanProtocol::update() {
 		while (this->rxPosition > 6) {
 			// check if header is ok
 			if (this->rxBuffer[0] == 0x55 && calcChecksum(this->rxBuffer + 1, 4) == this->rxBuffer[5]) {
-				int dataLength = (this->rxBuffer[1] << 8) | this->rxBuffer[2];
+				int packetLength = (this->rxBuffer[1] << 8) | this->rxBuffer[2];
 				int optionalLength = this->rxBuffer[3];
-				int length = dataLength + optionalLength;
-				uint8_t packetType = this->rxBuffer[4];
+				int length = packetLength + optionalLength;
+				int frameLength = 6 + length + 1;
+				//uint8_t packetType = this->rxBuffer[4];
 			
 				// check if complete frame has arrived
-				if (this->rxPosition >= 6 + length + 1) {
+				if (this->rxPosition >= frameLength) {
 					// check if frame is ok
 					if (calcChecksum(this->rxBuffer + 6, length) == this->rxBuffer[6 + length]) {
 						// cancel timeout and reset retry count
 						//this->txTimer.cancel();
 						//this->txRetryCount = 0;
 
+						// valid packed received
+						return true;
+/*
 						onPacket(packetType, this->rxBuffer + 6, dataLength,
 							this->rxBuffer + 6 + dataLength, optionalLength);
 						
 						// remove frame from buffer
-						std::move(this->rxBuffer + 6 + length + 1, this->rxBuffer + rxPosition,
-							this->rxBuffer);
-						this->rxPosition -= 6 + length + 1;
+						for (int i = frameLength; i < this->rxPosition; ++i)
+							this->rxBuffer[i - frameLength] = this->rxBuffer[i];
+						this->rxPosition -= frameLength;
+*/
+
 					} else {
 						// error
 						this->rxPosition = 0;
@@ -50,6 +57,19 @@ void EnOceanProtocol::update() {
 		// continue receiving
 		receive();
 	}
+	return false;
+}
+
+void EnOceanProtocol::discardFrame() {
+	int frameLength = 6 + getPacketLength() + getOptionalLength() + 1;
+
+	// remove frame from buffer
+	for (int i = frameLength; i < this->rxPosition; ++i)
+		this->rxBuffer[i - frameLength] = this->rxBuffer[i];
+	this->rxPosition -= frameLength;
+	
+	// continue receiving
+	receive();
 }
 
 void EnOceanProtocol::receive() {

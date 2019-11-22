@@ -91,7 +91,7 @@ String Device::getStateName(uint8_t state) const {
 	Array<State> states = getStates();
 	for (int i = 0; i < states.length; ++i) {
 		if (states[i].state == state)
-			return states[i].name;
+			return string(states[i].name);
 	}
 	return {};
 }
