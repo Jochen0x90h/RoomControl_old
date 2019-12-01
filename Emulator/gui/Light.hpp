@@ -21,5 +21,7 @@ protected:
 	void setState() override;
 	
 	GLuint valueLocation;
-	uint8_t value = 0;
+	GLuint innerValueLocation;
+	float value = 0;
+	float innerValue = 0;
 };

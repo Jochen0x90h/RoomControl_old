@@ -41,41 +41,32 @@ static void mouseCallback(GLFWwindow* window, int button, int action, int mods) 
 }
 
 
-#define NO_ACTION_4 {0xff, 0xff}, {0xff, 0xff}, {0xff, 0xff}, {0xff, 0xff}
-#define NO_ACTION_5 NO_ACTION_4, {0xff, 0xff}
-#define NO_ACTION_6 NO_ACTION_5, {0xff, 0xff}
-#define NO_ACTION_7 NO_ACTION_6, {0xff, 0xff}
-#define NO_ACTION_8 NO_ACTION_7, {0xff, 0xff}
-Event eventsData[] = {
-	{{{{0, Device::ON}, {0, Device::OFF}, NO_ACTION_6}}, Event::Type::SWITCH, 0x10, 0xfef3ac9b}, // bottom left
-	{{{{1, Device::OFF}, {0, Action::SCENARIO}, NO_ACTION_6}}, Event::Type::SWITCH, 0x30, 0xfef3ac9b}, // top left
-	{{{{4, Device::STOP}, {4, Device::MOVE}, NO_ACTION_6}}, Event::Type::SWITCH, 0x50, 0xfef3ac9b}, // bottom right
-	{{{{5, Device::CLOSED}, {5, Device::OPEN}, NO_ACTION_6}}, Event::Type::SWITCH, 0x70, 0xfef3ac9b}, // top right
-/*
-	{0xfef3ac9b, Event::Type::SWITCH, 0x10, {{0, Action::SET_TRANSITION_START + 0}, {0, Action::SET_TRANSITION_START + 1}, NO_ACTION_6}}, // bottom left
-	{0xfef3ac9b, Event::Type::SWITCH, 0x30, {{1, Action::SET_TRANSITION_START + 0}, {1, Action::SET_TRANSITION_START + 1}, NO_ACTION_6}}, // top left
-	{0xfef3ac9b, Event::Type::SWITCH, 0x50, {{4, 100}, NO_ACTION_7}}, // bottom right
-	{0xfef3ac9b, Event::Type::SWITCH, 0x70, {{4, 0}, NO_ACTION_7}}, // top right
-*/
-	{{{{2, Device::ON}, NO_ACTION_7}}, Event::Type::TIMER, Event::SUNDAY, Clock::time(22, 41)},
-	{{{{2, Device::ON}, NO_ACTION_7}}, Event::Type::TIMER, Event::THURSDAY, Clock::time(22, 41)},
-	{{{{3, Device::ON}, NO_ACTION_7}}, Event::Type::TIMER, Event::MONDAY, Clock::time(10, 0)}
+Event eventData[] = {
+	{0xfef3ac9b, 0x10, {2, {{0, Device::ON}, {0, Device::OFF}}}}, // bottom left
+	{0xfef3ac9b, 0x30, {2, {{1, Device::OFF}, {0, Action::SCENARIO}}}}, // top left
+	{0xfef3ac9b, 0x50, {2, {{4, Device::STOP}, {4, Device::MOVE}}}}, // bottom right
+	{0xfef3ac9b, 0x70, {2, {{5, Device::CLOSED}, {5, Device::OPEN}}}}, // top right
 };
 
-Scenario scenariosData[] = {
-	{{{{0, Device::ON}, {1, Device::ON}, {2, Device::ON}, {3, Device::ON}, NO_ACTION_4}}, 0, "Lights On"},
+Timer timerData[] = {
+	{Clock::time(22, 41), Timer::SUNDAY, {1, {{2, Device::ON}}}},
+	{Clock::time(10, 0), Timer::MONDAY, {1, {{3, Device::ON}}}},
 };
 
-Device devicesData[] = {
-	{0, Device::Type::SWITCH, "Light1", 0, 0, {NO_ACTION_8}},
-	{1, Device::Type::SWITCH, "Light2", 0, 1, {NO_ACTION_8}},
-	{2, Device::Type::SWITCH, "Light3", 0, 2, {NO_ACTION_8}},
-	{3, Device::Type::SWITCH, "Light4", 0, 3, {NO_ACTION_8}},
-	{4, Device::Type::BLIND, "Blind1", 2000, 4, {NO_ACTION_8}},
-	{5, Device::Type::BLIND, "Blind2", 2000, 6, {NO_ACTION_8}},
-	{6, Device::Type::BLIND, "Blind3", 2000, 8, {NO_ACTION_8}},
-	{7, Device::Type::BLIND, "Blind4", 2000, 10, {NO_ACTION_8}},
-	{8, Device::Type::HANDLE, "Handle1", 0, 0xffffffff, {NO_ACTION_8}},
+Scenario scenarioData[] = {
+	{0, "Lights On", {4, {{0, Device::ON}, {1, Device::ON}, {2, Device::ON}, {3, Device::ON}}}},
+};
+
+Device deviceData[] = {
+	{0, Device::Type::SWITCH, "Light1", 500, 5000, 0}, // delay 0.5s, timeout for on state 3s
+	{1, Device::Type::SWITCH, "Light2", 0, 0, 1},
+	{2, Device::Type::SWITCH, "Light3", 0, 0, 2},
+	{3, Device::Type::SWITCH, "Light4", 0, 0, 3},
+	{4, Device::Type::BLIND, "Blind1", 2000, 0, 4},
+	{5, Device::Type::BLIND, "Blind2", 2000, 0, 6},
+	{6, Device::Type::BLIND, "Blind3", 2000, 0, 8},
+	{7, Device::Type::BLIND, "Blind4", 2000, 0, 10},
+	{8, Device::Type::HANDLE, "Handle1", 0, 0, 0},
 };
 
 /**
@@ -94,16 +85,17 @@ int main(int argc, const char **argv) {
 		return 1;
 	}
 	
-	std::cout << "sizeof(Event): " << sizeof(Event) << std::endl;
-	std::cout << "sizeof(Scenario): " << sizeof(Scenario) << std::endl;
-	std::cout << "sizeof(Device): " << sizeof(Device) << std::endl;
+	std::cout << "sizeof(Event): " << sizeof(Event) << " byteSize(): " << eventData[0].byteSize() << std::endl;
+	std::cout << "sizeof(Timer): " << sizeof(Timer) << " byteSize(): " << timerData[0].byteSize() << std::endl;
+	std::cout << "sizeof(Scenario): " << sizeof(Scenario) << " byteSize(): " << scenarioData[0].byteSize() << std::endl;
+	std::cout << "sizeof(Device): " << sizeof(Device) << " byteSize(): " << deviceData[0].byteSize() << std::endl;
 
 	// erase emulated flash
 	memset(Flash::data, 0xff, sizeof(Flash::data));
 
 	// read flash contents from file
 	std::ifstream is("flash.bin", std::ios::binary);
-	is.read((char*)Flash::data, sizeof(Flash::data));
+	//is.read((char*)Flash::data, sizeof(Flash::data));
 	is.close();
 
 	// get device from command line
@@ -141,10 +133,10 @@ int main(int argc, const char **argv) {
 
 	// default initialize arrays if empty
 	if (system.events.size() == 0) {
-		system.events.assign(eventsData);
-		system.scenarios.assign(scenariosData);
-		system.devices.assign(devicesData);
-		//system.outputs.assign(outputsData);
+		system.events.assign(eventData);
+		system.timers.assign(timerData);
+		system.scenarios.assign(scenarioData);
+		system.devices.assign(deviceData);
 
 		for (int i = 0; i < system.devices.size(); ++i) {
 			system.deviceStates[i].init(system.devices[i]);

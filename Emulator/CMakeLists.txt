@@ -68,10 +68,11 @@ set(SOURCES
 	Serial.hpp
 	EnOceanProtocol.cpp
 	EnOceanProtocol.hpp
+	Config.hpp
+	Action.cpp
 	Action.hpp
 	Event.hpp
-	#Button.hpp
-	#Timer.hpp
+	Timer.hpp
 	Scenario.hpp
 	Device.cpp
 	Device.hpp

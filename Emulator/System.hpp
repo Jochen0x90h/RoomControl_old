@@ -8,16 +8,13 @@
 #include "Temperature.hpp"
 #include "Storage.hpp"
 #include "Clock.hpp"
-#include "DeviceState.hpp"
-#include "Scenario.hpp"
 #include "Event.hpp"
+#include "Timer.hpp"
+#include "Scenario.hpp"
+#include "DeviceState.hpp"
 #include "String.hpp"
 #include "Ticker.hpp"
-
-
-static const int EVENT_COUNT = 32;
-static const int SCENARIO_COUNT = 32;
-static const int DEVICE_COUNT = 32;
+#include "Config.hpp"
 
 
 class System {
@@ -39,6 +36,11 @@ public:
 		EDIT_EVENT,
 		ADD_EVENT,
 
+		// timers
+		TIMERS,
+		EDIT_TIMER,
+		ADD_TIMER,
+
 		// scenarios
 		SCENARIOS,
 		EDIT_SCENARIO,
@@ -54,15 +56,13 @@ public:
 		ADD_DEVICE,
 		SELECT_CONDITION,
 		ADD_CONDITION,
-
-		HEATING
 	};
 
 	State getState() {return this->state;}
 
 	void updateMenu();
 	
-	void onSwitch(uint32_t input, uint8_t state);
+	void onEvent(uint32_t input, uint8_t state);
 	
 	StringBuffer<32> &toast() {
 		this->toastTime = this->ticker.getTicks();
@@ -95,14 +95,17 @@ public:
 	Storage storage;
 
 	// events
-	Storage::Array<Event, EVENT_COUNT> events;
+	Storage::Array<Event> events;
 	uint32_t eventStates[(EVENT_COUNT + 31) / 32];
 
+	// timers
+	Storage::Array<Timer> timers;
+
 	// scenarios
-	Storage::Array<Scenario, SCENARIO_COUNT> scenarios;
+	Storage::Array<Scenario> scenarios;
 
 	// devices
-	Storage::Array<Device, DEVICE_COUNT> devices;
+	Storage::Array<Device> devices;
 	DeviceState deviceStates[DEVICE_COUNT];
 
 	// 128x64 display
@@ -111,16 +114,16 @@ public:
 
 	// actions
 	// -------
-	
-	Action doFirstAction(const Event &event);
-	void doFirstActionAndToast(const Event &event);
+		
+	Action doFirstAction(const Actions &actions);
+	void doFirstActionAndToast(const Actions &actions);
 
-	bool doAllActions(const Action *actions, int count);
+	bool doAllActions(const Actions &actions);
 	
 	// set temp string with action (device/state, device/transition or scenario)
 	void setAction(Action action);
 
-	void listActionsSaveCancel();
+	void listActions();
 
 	// set temp string with constraint (device/state)
 	void setConstraint(Action action);
@@ -128,8 +131,8 @@ public:
 	// ids
 	// ---
 	
-	template <typename T, int C>
-	static uint8_t newId(Storage::Array<T, C> &array) {
+	template <typename T>
+	static uint8_t newId(Storage::Array<T> &array) {
 		bool found;
 		uint8_t id = 0;
 		int deviceCount = array.size();
@@ -145,36 +148,30 @@ public:
 		return id;
 	}
 
-	template <typename T, int C>
-	static void deleteId(Storage::Array<T, C> &array, uint8_t id) {
+	template <typename T>
+	static void deleteScenarioId(Storage::Array<T> &array, uint8_t id) {
 		for (int index = 0; index < array.size(); ++index) {
 			T element = array[index];
 			
-			// delete all actions with given id
-			int actionCount = element.getActionCount();
-			int j = 0;
-			for (int i = 0; i < actionCount; ++i) {
-				if (element.actions[i].id != id) {
-					element.actions[j] = element.actions[i];
-					++j;
-				}
-			}
-			if (j < actionCount) {
-				for (; j < T::ACTION_COUNT; ++j) {
-					element.actions[j] = {0xff, 0xff};
-				}
+			// delete all actions with given scenario id
+			if (element.actions.deleteId(id, Action::SCENARIO, Action::SCENARIO)) {
 				array.write(index, element);
 			}
 		}
 	}
-	
 
-	// events
-	// --------
-	
-	int getEventCount(Event::Type type);
+	template <typename T>
+	static void deleteDeviceId(Storage::Array<T> &array, uint8_t id) {
+		for (int index = 0; index < array.size(); ++index) {
+			T element = array[index];
 
-	const Event &getEvent(Event::Type type, int index);
+			// delete all actions with given device id
+			if (element.actions.deleteId(id, 0, Action::TRANSITION_END)) {
+				array.write(index, element);
+			}
+		}
+	}
+
 
 
 	// scenarios
@@ -202,25 +199,24 @@ public:
 	// menu
 	// ----
 
-	void updateSelection(int delta);
-
-	void menu();
-	void menu(int delta) {updateSelection(delta); menu();}
+	void menu(int delta, bool activated);
 
 	void label(const char* s);
 
 	void line();
 	
-	void entry(const char* s, bool underline = false, int begin = 0, int end = 0);
+	bool entry(const char* s, bool underline = false, int begin = 0, int end = 0);
 
-	void entryWeekdays(const char* s, int weekdays, bool underline = false, int index = 0);
+	bool entryWeekdays(const char* s, int weekdays, bool underline = false, int index = 0);
 	
 	bool isSelectedEntry() {
-		return this->entryIndex == this->selected;
+		return this->selected == this->entryIndex;
 	}
 
-	bool isEditEntry() {
-		return this->entryIndex == this->selected && this->edit > 0;
+	bool isEdit(int editCount = 1);
+
+	bool isEditEntry(int entryIndex) {
+		return this->selected == entryIndex && this->edit > 0;
 	}
 
 	void push(State state);
@@ -238,24 +234,32 @@ public:
 	// menu state
 	State state = IDLE;
 
-	// index of selected element
+	// index of selected menu entry
 	int selected = 0;
-	int lastSelected = 0;
+	
+	// y coordinate of selected menu entry
 	int selectedY = 0;
-	
-	// edit value of selected element
-	int edit = 0;
-	
-	// menu display state
+		
+	// starting y coodinate of display
 	int yOffset = 0;
-	int entryIndex = 0xffff;
-	int entryY;
 	
 	// menu stack
 	struct StackEntry {State state; int selected; int selectedY; int yOffset;};
 	int stackIndex = 0;
 	StackEntry stack[6];
+
+	// true if selected menu entry was activated
+	bool activated = false;
+
+	// index of current menu entry
+	int entryIndex = 0xffff;
 	
+	// y coordinate of current menu entry
+	int entryY;
+
+	// edit value of selected element
+	int edit = 0;
+
 	// toast data
 	uint32_t toastTime;
 	
@@ -264,9 +268,11 @@ public:
 	
 	// temporary objects
 	union {
-		Actions actions;
 		Event event;
+		Timer timer;
 		Scenario scenario;
+		Device device;
 	} u;
-	Device device;
+	Actions *actions;
+	uint8_t actionIndex;
 };
