@@ -4,31 +4,23 @@
 
 
 struct Timer {
-	static const int WEEKDAYS_MASK = 0x7f000000; // flag for each weekday
-	static const int MONDAY = 0x01000000;
-	static const int TUESDAY = 0x02000000;
-	static const int WEDNESDAY = 0x04000000;
-	static const int THURSDAY = 0x08000000;
-	static const int FRIDAY = 0x10000000;
-	static const int SATURDAY = 0x20000000;
-	static const int SUNDAY = 0x40000000;
+	static const uint8_t MONDAY = 0x01;
+	static const uint8_t TUESDAY = 0x02;
+	static const uint8_t WEDNESDAY = 0x04;
+	static const uint8_t THURSDAY = 0x08;
+	static const uint8_t FRIDAY = 0x10;
+	static const uint8_t SATURDAY = 0x20;
+	static const uint8_t SUNDAY = 0x40;
 
-	static const int WEEKDAYS_SHIFT = Clock::WEEKDAY_SHIFT;
-
-	// maximum number of actions per timer
-	static const int ACTION_COUNT = 8;
-
-	// trigger time
+	// timer time
 	uint32_t time;
-	
-	// list of actions, the first feasible action gets executed
-	Action actions[ACTION_COUNT];
 
-	int getActionCount() const {
-		for (int i = 0; i < ACTION_COUNT; ++i) {
-			if (!this->actions[i].isValid())
-				return i;
-		}
-		return ACTION_COUNT;
-	}
+	// weekday flags to indicate on which days the timer is active
+	uint8_t weekdays;
+
+	// the timer executes the first executable action when it triggers
+	// note: must be last in struct!
+	Actions actions;
+	
+	int byteSize() const {return offsetof(Timer, actions) + this->actions.byteSize();}
 };

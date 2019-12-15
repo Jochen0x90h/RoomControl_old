@@ -5,47 +5,40 @@
 
 struct String {
 	const char *data;
-	uint8_t length;
-
-	String() : data(nullptr), length(0) {}
-
-	template <int N>
-	String(const char (&string)[N]) : data(string), length(N) {}
+	int length;
 };
+String string(const char *str);
 
 // decimal numbers
 template <typename T>
 struct Decimal {
-	Decimal(T value, int digitCount) : value(value), digitCount(digitCount) {}
 	T value;
 	int digitCount;
 };
 template <typename T>
 Decimal<T> decimal(T value, int digitCount = 1) {
-	return Decimal<T>(value, digitCount);
+	return {value, digitCount};
 }
 
 // binary coded decimal numbers
 template <typename T>
 struct Bcd {
-	Bcd(T value, int digitCount) : value(value), digitCount(digitCount) {}
 	T value;
 	int digitCount;
 };
 template <typename T>
 Bcd<T> bcd(T value, int digitCount = 1) {
-	return Bcd<T>(value, digitCount);
+	return {value, digitCount};
 }
 
 // hexadecimal numbers
 template <typename T>
 struct Hex {
-	Hex(T value) : value(value) {}
 	T value;
 };
 template <typename T>
 Hex<T> hex(T value) {
-	return Hex<T>(value);
+	return {value};
 }
 
 static const char *hexTable = "0123456789ABCDEF";
@@ -141,7 +134,7 @@ public:
 	}
 
 	StringBuffer &operator , (int dec) {
-		return operator , (Decimal<int>(dec, 1));
+		return operator , (Decimal<int>{dec, 1});
 	}
 
 	template <typename T>

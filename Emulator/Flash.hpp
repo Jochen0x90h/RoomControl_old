@@ -6,19 +6,20 @@
 class Flash {
 public:
 	static const int PAGE_SIZE = 1024;
-	static const int PAGE_COUNT = 32;
-	static const int WRITE_ALIGN = 2;
+	static const int PAGE_OFFSET = 16;
+	static const int PAGE_COUNT = 16;
+	
+	// use at least 4 so that 32 bit types are 4 byte aligned
+	static const int WRITE_ALIGN = 4;
 
-	static uint32_t data[PAGE_COUNT * (PAGE_SIZE >> 2)];
+	static uint8_t data[PAGE_COUNT * PAGE_SIZE];
 
-	static uint32_t *getAddress(uint8_t pageIndex) {
-		return data + pageIndex * (PAGE_SIZE >> 2);
-	}
+	static const uint8_t *getAddress(uint8_t pageIndex);
 
 	static bool isEmpty(uint8_t pageIndex) {
-		uint32_t *page = getAddress(pageIndex);
-		for (int i = 0; i < PAGE_SIZE >> 2; ++i) {
-			if (page[i] != 0xffffffff)
+		const uint8_t *page = getAddress(pageIndex);
+		for (int i = 0; i < PAGE_SIZE; ++i) {
+			if (page[i] != 0xff)
 				return false;
 		}
 		return true;
@@ -26,9 +27,14 @@ public:
 	
 	static void erase(uint8_t pageIndex);
 	
-	static void write(uint32_t *address, uint32_t *data, int count) {
-		for (int i = 0; i < count; ++i) {
-			address[i] = data[i];
+	static constexpr int align(int size) {
+		return (size + WRITE_ALIGN - 1) & ~(WRITE_ALIGN - 1);
+	}
+	
+	static const uint8_t *write(const uint8_t *address, const void *data, int size) {
+		for (int i = 0; i < size; ++i) {
+			const_cast<uint8_t*>(address)[i] = reinterpret_cast<const uint8_t*>(data)[i];
 		}
+		return address + align(size);
 	}
 };

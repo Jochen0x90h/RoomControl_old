@@ -1,23 +1,27 @@
 #include "DeviceState.hpp"
+#include "Config.hpp"
 
 
 bool DeviceState::isActive(const Device &device, uint8_t state) {
-	if (state == this->state)
+	if (state == this->state /*|| state == Device::VALUE*/)
 		return true;
-		
+
+	// check if pseudo-states are active
 	switch (device.type) {
 	case Device::Type::SWITCH:
 	case Device::Type::LIGHT:
 		break;
 	case Device::Type::DIMMER:
 	case Device::Type::BLIND:
-		{
+		if (this->mode == 0) {
+			// stopped
+			return state == Device::STOP;
+		} else {
+			// transition is in progress
 			int s = int(this->state) << 16;
-			return state == Device::VALUE
-				|| (state == Device::STOP && this->interpolator == s)
-				|| (state == Device::LIGHTEN && this->interpolator < s)
-				|| (state == Device::DARKEN && this->interpolator > s)
-				|| (state == Device::DIM && this->interpolator != s);
+			return state == Device::DIM
+				|| (state == Device::LIGHTEN && this->timer < s)
+				|| (state == Device::DARKEN && this->timer > s);
 		}
 	case Device::Type::HANDLE:
 		return (state == Device::SHUT && (this->state == Device::LOCKED || this->state == Device::CLOSED))
@@ -28,32 +32,40 @@ bool DeviceState::isActive(const Device &device, uint8_t state) {
 }
 
 void DeviceState::setState(const Device &device, uint8_t state) {
+	uint8_t currentState = this->state;
 	switch (device.type) {
 	case Device::Type::SWITCH:
 	case Device::Type::LIGHT:
-		this->lastState = this->state;
+		this->lastState = currentState;
 		this->state = state;
-		if (device.speed == 0)
-			this->interpolator = state << 16;
+		
+		// start delay
+		this->mode = DELAY;
+		this->timer = device.getDelay();
 		break;
 	case Device::Type::DIMMER:
-		if (state <= 100) {
+		if (state == Device::OFF || state == Device::ON) {
 			// set immediately
-			this->lastState = this->state;
+			this->lastState = currentState;
 			this->state = state;
-			this->interpolator = state;
-			break;
+
+			// start timeout
+			this->mode = 0;
+			this->timer = device.getTimeout();
+			return;
 		}
 		// fall through
 	case Device::Type::BLIND:
-		if (state == Device::STOP) {
+		if (state == Device::STOP || this->mode == TRANSITION) {
 			// stop
-			this->state = (this->interpolator + 0x8000) >> 16;
-			this->interpolator = this->state << 16;
+			if (this->mode == TRANSITION) {
+				this->state = (this->timer + 0x8000) >> 16;
+				this->mode = 0;
+			}
 		} else {
 			// dim
 			if (state == Device::DIM) {
-				if ((this->lastState > this->state && this->state < 100) || this->state == 0) {
+				if ((this->lastState > currentState && currentState < 100) || currentState == 0) {
 					state = 100;
 				} else {
 					state = 0;
@@ -63,46 +75,92 @@ void DeviceState::setState(const Device &device, uint8_t state) {
 			else if (state == Device::DARKEN)
 				state = 0;
 
-			this->lastState = this->state;
+			// start transition
+			this->lastState = currentState;
 			this->state = state;
+			this->mode = TRANSITION;
+			this->timer = currentState << 16;
 		}
 		break;
 	case Device::Type::HANDLE:
-		this->lastState = this->state;
+		this->lastState = currentState;
 		this->state = state;
-		this->interpolator = state << 16;
 		break;
 	}
 }
 
-int DeviceState::update(const Device &device, int ticks) {
-	int s = int(this->state) << 16;
-	if (this->interpolator != s) {
-		int step = device.speed * ticks;
-		if (this->interpolator < s) {
-			// up
-			this->interpolator = min(this->interpolator + step, s);
-		} else {
-			// down
-			this->interpolator = max(this->interpolator - step, s);
-		}
-	}
+int DeviceState::update(const Device &device, int ticks, int temperature) {
+	uint8_t currentState = this->state;
+
+	// flags for internal outputs
+	int outputs = 0;
 	
-	// check if device drives an internal output
-	if (device.binding < 16) {
-		switch (device.type) {
-		case Device::Type::SWITCH:
-		case Device::Type::LIGHT:
-			return (this->state == 100 ? 1 : 0) << device.binding;
-		case Device::Type::DIMMER:
-			// can't drive internal output
-			break;
-		case Device::Type::BLIND:
-			return ((this->interpolator < s ? 1 : 0) | (this->interpolator > s ? 2 : 0)) << device.binding;
-		case Device::Type::HANDLE:
-			// can't drive internal output
-			break;
+	// update device state
+	switch (device.type) {
+	case Device::Type::SWITCH:
+	case Device::Type::LIGHT:
+		if (this->mode == DELAY) {
+			// delay in progress
+			this->timer -= ticks;
+			if (this->timer <= 0) {
+				// delay reached end
+				this->mode = 0;
+
+				// start timeout
+				this->timer = device.getTimeout();
+			}
+		} else if (this->timer > 0) {
+			// timeout in progress
+			this->timer -= ticks;
+			if (this->timer <= 0) {
+				// reset to default state
+				this->lastState = currentState;
+				this->state = Device::OFF;
+			}
 		}
+		outputs = (this->mode == DELAY ? this->lastState : currentState) == 100 ? 1 : 0;
+		break;
+	case Device::Type::DIMMER:
+	case Device::Type::BLIND:
+		if (this->mode == TRANSITION) {
+			// transition is in progress
+			int s = int(currentState) << 16;
+			int speed = device.getSpeed();
+			int step = ticks * speed;
+			if (this->timer < s) {
+				// up
+				this->timer = min(this->timer + step, s);
+				outputs = 1;
+			} else {
+				// down
+				this->timer = max(this->timer - step, s);
+				outputs = 2;
+			}
+			if (speed == 0 || this->timer == s) {
+				// transition reached end
+				this->mode = 0;
+				outputs = 0;
+				
+				// start timeout
+				this->timer = device.getTimeout();
+			}
+		} else if (this->timer > 0) {
+			// timeout in progress
+			this->timer -= ticks;
+			if (this->timer <= 0) {
+				// reset to default state
+				this->lastState = currentState;
+				this->state = Device::OFF;
+				this->timer = int(currentState) << 16;
+			}
+		}
+		break;
+	case Device::Type::HANDLE:
+		// can't drive internal output
+		break;
 	}
+
+	if (device.output < OUTPUT_COUNT)
+		return outputs << device.output;
 	return 0;
 }

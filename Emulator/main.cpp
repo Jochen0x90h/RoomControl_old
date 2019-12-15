@@ -41,44 +41,32 @@ static void mouseCallback(GLFWwindow* window, int button, int action, int mods) 
 }
 
 
-#define NO_ACTION_4 {0xff, 0xff}, {0xff, 0xff}, {0xff, 0xff}, {0xff, 0xff}
-#define NO_ACTION_5 NO_ACTION_4, {0xff, 0xff}
-#define NO_ACTION_6 NO_ACTION_5, {0xff, 0xff}
-#define NO_ACTION_7 NO_ACTION_6, {0xff, 0xff}
-#define NO_ACTION_8 NO_ACTION_7, {0xff, 0xff}
-Button buttonsData[] = {
-	{0xfef3ac9b, 0x10, {{0, Device::ON}, {0, Device::OFF}, NO_ACTION_6}}, // bottom left
-	{0xfef3ac9b, 0x30, {{1, Device::OFF}, {0, Action::SCENARIO}, NO_ACTION_6}}, // top left
-	{0xfef3ac9b, 0x50, {{4, Device::STOP}, {4, Device::MOVE}, NO_ACTION_6}}, // bottom right
-	{0xfef3ac9b, 0x70, {{5, Device::CLOSED}, {5, Device::OPEN}, NO_ACTION_6}}, // top right
-};
-/*
-Button buttonsData[] = {
-	{0xfef3ac9b, 0x10, {{0, Action::SET_TRANSITION_START + 0}, {0, Action::SET_TRANSITION_START + 1}, NO_ACTION_6}}, // bottom left
-	{0xfef3ac9b, 0x30, {{1, Action::SET_TRANSITION_START + 0}, {1, Action::SET_TRANSITION_START + 1}, NO_ACTION_6}}, // top left
-	{0xfef3ac9b, 0x50, {{4, 100}, NO_ACTION_7}}, // bottom right
-	{0xfef3ac9b, 0x70, {{4, 0}, NO_ACTION_7}}, // top right
-};
-*/
-Timer timersData[] = {
-	{Clock::time(22, 41) | Timer::SUNDAY, {{2, Device::ON}, NO_ACTION_7}},
-	{Clock::time(10, 0) | Timer::MONDAY, {{3, Device::ON}, NO_ACTION_7}}
+Event eventData[] = {
+	{0xfef3ac9b, 0x10, {2, {{0, Device::ON}, {0, Device::OFF}}}}, // bottom left
+	{0xfef3ac9b, 0x30, {2, {{1, Device::OFF}, {0, Action::SCENARIO}}}}, // top left
+	{0xfef3ac9b, 0x50, {2, {{4, Device::STOP}, {4, Device::MOVE}}}}, // bottom right
+	{0xfef3ac9b, 0x70, {2, {{5, Device::CLOSED}, {5, Device::OPEN}}}}, // top right
 };
 
-Scenario scenariosData[] = {
-	{0, "Lights On", {{0, Device::ON}, {1, Device::ON}, {2, Device::ON}, {3, Device::ON}, NO_ACTION_4}},
+Timer timerData[] = {
+	{Clock::time(22, 41), Timer::SUNDAY, {1, {{2, Device::ON}}}},
+	{Clock::time(10, 0), Timer::MONDAY, {1, {{3, Device::ON}}}},
 };
 
-Device devicesData[] = {
-	{0, Device::Type::SWITCH, "Light1", 0, 0, {NO_ACTION_8}},
-	{1, Device::Type::SWITCH, "Light2", 0, 1, {NO_ACTION_8}},
-	{2, Device::Type::SWITCH, "Light3", 0, 2, {NO_ACTION_8}},
-	{3, Device::Type::SWITCH, "Light4", 0, 3, {NO_ACTION_8}},
-	{4, Device::Type::BLIND, "Blind1", 2000, 4, {NO_ACTION_8}},
-	{5, Device::Type::BLIND, "Blind2", 2000, 6, {NO_ACTION_8}},
-	{6, Device::Type::BLIND, "Blind3", 2000, 8, {NO_ACTION_8}},
-	{7, Device::Type::BLIND, "Blind4", 2000, 10, {NO_ACTION_8}},
-	{8, Device::Type::HANDLE, "Handle1", 0, 0xffffffff, {NO_ACTION_8}},
+Scenario scenarioData[] = {
+	{0, "Lights On", {4, {{0, Device::ON}, {1, Device::ON}, {2, Device::ON}, {3, Device::ON}}}},
+};
+
+Device deviceData[] = {
+	{0, Device::Type::SWITCH, "Light1", 500, 5000, 0}, // delay 0.5s, timeout for on state 3s
+	{1, Device::Type::SWITCH, "Light2", 0, 0, 1},
+	{2, Device::Type::SWITCH, "Light3", 0, 0, 2},
+	{3, Device::Type::SWITCH, "Light4", 0, 0, 3},
+	{4, Device::Type::BLIND, "Blind1", 2000, 0, 4},
+	{5, Device::Type::BLIND, "Blind2", 2000, 0, 6},
+	{6, Device::Type::BLIND, "Blind3", 2000, 0, 8},
+	{7, Device::Type::BLIND, "Blind4", 2000, 0, 10},
+	{8, Device::Type::HANDLE, "Handle1", 0, 0, 0},
 };
 
 /**
@@ -97,10 +85,13 @@ int main(int argc, const char **argv) {
 		return 1;
 	}
 	
-	// erase flash
-	for (int i = 0; i < Flash::PAGE_COUNT; ++i) {
-		Flash::erase(i);
-	}
+	std::cout << "sizeof(Event): " << sizeof(Event) << " byteSize(): " << eventData[0].byteSize() << std::endl;
+	std::cout << "sizeof(Timer): " << sizeof(Timer) << " byteSize(): " << timerData[0].byteSize() << std::endl;
+	std::cout << "sizeof(Scenario): " << sizeof(Scenario) << " byteSize(): " << scenarioData[0].byteSize() << std::endl;
+	std::cout << "sizeof(Device): " << sizeof(Device) << " byteSize(): " << deviceData[0].byteSize() << std::endl;
+
+	// erase emulated flash
+	memset(Flash::data, 0xff, sizeof(Flash::data));
 
 	// read flash contents from file
 	std::ifstream is("flash.bin", std::ios::binary);
@@ -138,14 +129,14 @@ int main(int argc, const char **argv) {
 	glfwSwapInterval(0);
 
 	System system(device);
+	Display display;
 
 	// default initialize arrays if empty
-	if (system.buttons.size() == 0) {
-		system.buttons.assign(buttonsData);
-		system.timers.assign(timersData);
-		system.scenarios.assign(scenariosData);
-		system.devices.assign(devicesData);
-		//system.outputs.assign(outputsData);
+	if (system.events.size() == 0) {
+		system.events.assign(eventData);
+		system.timers.assign(timerData);
+		system.scenarios.assign(scenarioData);
+		system.devices.assign(deviceData);
 
 		for (int i = 0; i < system.devices.size(); ++i) {
 			system.deviceStates[i].init(system.devices[i]);
@@ -156,14 +147,19 @@ int main(int argc, const char **argv) {
 	float y = 0.1f;
 
 	// display
-	layoutManager.add(&system.display);
-	system.display.setRect(0.3f, y, 0.4f, 0.2f);
+	layoutManager.add(&display);
+	display.setRect(0.3f, y, 0.4f, 0.2f);
 
 	y += 0.3f;
 
-	// potis
+	// poti
 	layoutManager.add(&system.poti);
 	system.poti.setRect(0.2f, y, 0.25f, 0.25f);
+
+	// motion detector
+	layoutManager.add(&system.motionDetector);
+	system.motionDetector.setRect(0.55f, y + 0.05, 0.15f, 0.15f);
+
 	//Poti poti2;
 	//layoutManager.add(&poti2);
 	//poti2.setRect(0.55f, y, 0.25f, 0.25f);
@@ -190,8 +186,12 @@ int main(int argc, const char **argv) {
 		// mouse
 		layoutManager.doMouse(window);
 		
+		// update system
 		system.update();
-		
+
+		// update display
+		display.update(system.bitmap);
+
 		// check if device widgets still match system devices
 		int deviceCount = system.devices.size();
 		bool newDeviceWidgets = devices.size() != deviceCount;

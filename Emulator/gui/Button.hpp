@@ -3,23 +3,12 @@
 #include "Widget.hpp"
 
 
-class Poti : public Widget {
+class Button : public Widget {
 public:
-	
-	Poti();
 
-	~Poti() override;
-	
-	// quadrature encoder
-	uint16_t getValue() {return this->value >> 16;}
+	Button();
 
-	int getDelta()
-	{
-		int16_t value = getValue();
-		int delta = value - this->lastValue;
-		this->lastValue = value;
-		return delta;
-	}
+	~Button() override;
 
 	// switch
 	bool getState() {return this->state;}
@@ -40,12 +29,9 @@ protected:
 	
 	void setState() override;
 	
-	GLuint valueLocation;
 	GLuint stateLocation;
 	
-	// current rotation and press state of the poti
-	uint32_t value = 0;
-	int16_t lastValue = 0;
+	// current press state of the button
 	bool state = false;
 	bool lastState = false;
 	

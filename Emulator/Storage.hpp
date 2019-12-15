@@ -1,12 +1,11 @@
 #pragma once
 
+#include "Flash.hpp"
+#include "util.hpp"
 #include <stdint.h>
 
 
 class Storage {
-	//template <typename E, int C>
-	//friend class Array;
-
 public:
 
 	/**
@@ -26,29 +25,65 @@ public:
 		init();
 	}
 
+	/**
+	 * Return true if there is space available for the requested size
+	 */
+	bool hasSpace(int elementCount, int byteSize) const;
+
+	void switchFlashRegions();
+
 protected:
 
-	enum Op {
+	enum class Op : uint8_t {
 		OVERWRITE,
-		//INSERT,
 		ERASE,
 		MOVE
 	};
 	
 	struct Header {
+		// index of array to modify
 		uint8_t arrayIndex;
-		uint8_t op;
+				
+		// element index to modify
 		uint8_t index;
+		
+		// operation dependent value
+		// OVERWRITE, ERASE: element count
+		// MOVE: destination index
 		uint8_t value;
-	};
 
+		// operation (is last so that it can be used to check if the header was fully written to flash)
+		Op op;
+	};
+	static_assert(sizeof(Header) == 4);
+	static const int HEADER_SIZE = sizeof(Header);
+	
 	struct ArrayData {
+		Storage *storage;
+
+		// next array in a linked list
 		ArrayData *next;
+		
+		// index of array
 		uint8_t index;
-		uint8_t elementSize; // divided by 4
-		uint8_t maxCount;
+		
+		// element size divided by 4
+		//uint8_t elementSize;
+		
+		// number of elements in array
 		uint8_t count;
-		uint32_t **elements;
+		
+		// function to determine the size of an element
+		int (*byteSize)(const void *element);
+		
+		// elements
+		const void **elements;
+
+		void enlarge(int count);
+		void shrink(int count);
+		void write(int index, const void *element);
+		void erase(int index);
+		void move(int oldIndex, int newIndex);
 	};
 
 public:
@@ -61,108 +96,101 @@ public:
 		bool operator !=(Iterator it) {return it.p != this->p;}
 	};
 
-	template <typename E, int C>
+	template <typename E>
 	class Array {
 	public:
 		using ELEMENT = E;
-		static const int MAX_COUNT = C;
 
 		int size() const {
 			return this->data.count;
 		}
-		
-		const ELEMENT &operator [](int index) const {
-			return *this->elements[index];
+				
+		const ELEMENT &operator[](int index) const {
+			assert(index >= 0 && index < this->data.count);
+			const ELEMENT **e = reinterpret_cast<const ELEMENT**>(this->data.elements);
+			return *e[index];
 		}
 
 		void write(int index, const ELEMENT &element) {
-			if (index == this->data.count && index < MAX_COUNT)
-				this->data.count = index + 1;
-			if (index < this->data.count) {
-				// write element
-				this->elements[index] = &element;
-				this->storage->write(&this->data, Storage::OVERWRITE, index, 1);
-			}
-		}
-	/*
-		void write(int index, const ELEMENT *elements, int count) {
-			if (index <= this->array.count) {
-				// write elements
-				for (int i = 0; i < count; ++i) {
-					this->elements[index + i] = elements[i];
-				}
-				this->storage.write(&this->array, Storage::OVERWRITE, index, count);
-				this->array.count = max(this->array.count, index + count);
-			}
-		}
-	*/
-		template <int N>
-		void assign(const ELEMENT (&elements)[N]) {
-			static_assert(N <= MAX_COUNT, "array too large");
-			
-			// write elements
-			for (int i = 0; i < N; ++i) {
-				this->elements[i] = &elements[i];
-			}
-			this->storage->write(&this->data, Storage::OVERWRITE, 0, N);
-			if (this->data.count > N)
-				this->storage->write(&this->data, Storage::ERASE, this->data.count, this->data.count - N);
-			this->data.count = N;
+			assert(index >= 0 && index <= this->data.count);
+			this->data.write(index, &element);
 		}
 
 		void erase(int index) {
-			if (index < this->data.count) {
-				// erase element
-				for (int i = index; i < this->data.count - 1; ++i) {
-					this->elements[i] = this->elements[i + 1];
-				}
-				--this->data.count;
-
-				// update flash storage
-				this->storage->write(&this->data, Storage::ERASE, index, 1);
-			}
+			assert(index >= 0 && index < this->data.count);
+			this->data.erase(index);
 		}
 		
+		/**
+		 * Move an element to an old index to a new index and move all elements in between to fill the old index and free
+		 * the new index
+		 */
 		void move(int index, int newIndex) {
-			if (index < this->data.count && newIndex < this->data.count && index != newIndex) {
-				// move element
-				ELEMENT *e = this->elements[index];
-				if (index < newIndex) {
-					for (int i = index; i < newIndex; ++i) {
-						this->elements[i] = this->elements[i + 1];
-					}
-				} else {
-					for (int i = index; i > newIndex; --i) {
-						this->elements[i] = this->elements[i - 1];
-					}
-				}
-				this->elements[newIndex] = e;
-				
-				// update flash storage
-				this->storage->write(&this->array, Storage::MOVE, index, newIndex);
-			}
+			assert(index >= 0 && index < this->data.count);
+			assert(newIndex >= 0 && newIndex < this->data.count);
+			this->data.move(index, newIndex);
 		}
 		
-		Iterator<ELEMENT> begin() const {return {this->elements};}
-		Iterator<ELEMENT> end() const {return {this->elements + this->data.count};}
+		Iterator<ELEMENT> begin() const {
+			const ELEMENT **elements = reinterpret_cast<const ELEMENT**>(this->data.elements);
+			return {elements};
+			
+		}
+		Iterator<ELEMENT> end() const {
+			const ELEMENT **elements = reinterpret_cast<const ELEMENT**>(this->data.elements);
+			return {elements + this->data.count};
+		}
 
-		Storage *storage;
+		// only for emulator to set initial configuration
+		template <int N>
+		void assign(const ELEMENT (&elements)[N]) {
+			assert(this->data.count == 0);
+			Storage *storage = this->data.storage;
+
+			// enlarge array
+			this->data.enlarge(N);
+			
+			// write header
+			Header header = {this->data.index, uint8_t(0), uint8_t(N), Op::OVERWRITE};
+			storage->it = Flash::write(storage->it, &header, 1);
+			
+			// write elements to flash
+			for (int i = 0; i < N; ++i) {
+				const void *element = &elements[i];
+				
+				// update used memory size
+				int elementSize = this->data.byteSize(element);
+				storage->elementsSize += elementSize;
+
+				// set element in flash
+				this->data.elements[i] = storage->it;
+
+				// write element to flash
+				storage->it = Flash::write(storage->it, element, elementSize);
+			}
+		}
+
 		ArrayData data;
-		const ELEMENT *elements[MAX_COUNT];
 	};
-	
+		
 protected:
+	
+	template <typename E>
+	static int byteSize(const void *element) {
+		return reinterpret_cast<const E*>(element)->byteSize();
+	}
 
 	template <typename T>
 	void add(T &array) {
-		array.storage = this;
+		static_assert(sizeof(typename T::ELEMENT) < 1024);
+		
+		array.data.storage = this;
 		array.data.next = this->first;
 		this->first = &array.data;
-		array.data.index = this->count++;
-		array.data.elementSize = (sizeof(typename T::ELEMENT) + 3) / 4;
-		array.data.maxCount = T::MAX_COUNT;
+		array.data.index = this->arrayCount++;
 		array.data.count = 0;
-		array.data.elements = (uint32_t**)array.elements;
+		array.data.byteSize = &byteSize<typename T::ELEMENT>;
+		array.data.elements = this->elements;
 	}
 
 	template <typename T, typename... Arrays>
@@ -173,12 +201,24 @@ protected:
 
 	void init();
 	
-	void write(ArrayData *arrayData, int op, int index, int value);
-
+	// configuration
 	uint8_t pageStart;
 	uint8_t pageCount;
-	uint8_t count = 0;
-	uint32_t *it;
-	uint32_t *end;
+	uint8_t arrayCount = 0;
+	
+	// flash pointers
+	const uint8_t *it;
+	const uint8_t *end;
+	
+	// list of arrays
 	ArrayData *first = nullptr;
+	
+	// space for array elements of all arrays
+	const void *elements[256];
+	
+	// total number of elements
+	int elementCount = 0;
+	
+	// accumulated size of all elements in 4 byte units
+	int elementsSize = 0;
 };

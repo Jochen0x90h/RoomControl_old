@@ -2,48 +2,49 @@
 #include "util.hpp"
 
 
-static Device::State switchStates[] = {
+static const Device::State switchStates[] = {
 	{"Off", Device::OFF},
 	{"On", Device::ON}};
 
-static Device::Transition switchTransitions[] = {
+static const Device::Transition switchTransitions[] = {
 	{Device::OFF, Device::ON},
 	{Device::ON, Device::OFF}};
 	
-static Device::State dimmerStates[] = {
+static const Device::State dimmerStates[] = {
 	{"Off", Device::OFF},
 	{"On", Device::ON},
 	{"Value", Device::VALUE},
 	{"Lighten", Device::LIGHTEN},
 	{"Darken", Device::DARKEN},
-	{"Dim", Device::DIM},
+	{"Dim", Device::DIM}, // dim into opposite direction as last dimming
 	{"Stop", Device::STOP}};
 
-static Device::Transition dimmerTransitions[] = {
+static const Device::Transition dimmerTransitions[] = {
 	{Device::DIM, Device::STOP},
 	{Device::VALUE, Device::VALUE}};
 
-static Device::State blindStates[] = {
+static const Device::State blindStates[] = {
 	{"Closed", Device::CLOSED}, // not needed as action because raise can be used
 	{"Open", Device::OPEN}, // not needed as action because lower can be used
 	{"Value", Device::VALUE},
 	{"Raise", Device::RAISE},
 	{"Lower", Device::LOWER},
-	{"Move", Device::MOVE},
+	{"Move", Device::MOVE}, // move into opposite direction as last movement
 	{"Stop", Device::STOP}};
 
-static Device::Transition blindTransitions[] = {
+static const Device::Transition blindTransitions[] = {
 	{Device::MOVE, Device::STOP},
 	{Device::VALUE, Device::VALUE}};
 
-static Device::State handleStates[] = {
+static const Device::State handleStates[] = {
 	{"Locked", Device::LOCKED},
 	{"Closed", Device::CLOSED},
 	{"Open", Device::OPEN},
 	{"Tilt", Device::TILT},
-	{"Shut", Device::SHUT},
-	{"Unshut", Device::UNSHUT},
-	{"Unlocked", Device::UNLOCKED}};
+	{"Shut", Device::SHUT}, // closed or locked
+	{"Unshut", Device::UNSHUT}, // open or tilt
+	{"Unlocked", Device::UNLOCKED}}; // closed, open or tilt
+
 
 Array<Device::State> Device::getStates() const {
 	switch (this->type) {
@@ -69,6 +70,7 @@ Array<Device::State> Device::getActionStates() const {
 	case Type::BLIND:
 		return Array<Device::State>(blindStates + 2, size(blindStates) - 2);
 	case Type::HANDLE:
+		// handle is only a sensor, therefore no state can be set by an action
 		return {};
 	}
 }
@@ -88,10 +90,9 @@ Array<Device::Transition> Device::getTransitions() const {
 }
 
 String Device::getStateName(uint8_t state) const {
-	Array<State> states = getStates();
-	for (int i = 0; i < states.length; ++i) {
-		if (states[i].state == state)
-			return states[i].name;
+	for (const State &s : getStates()) {
+		if (s.state == state)
+			return string(s.name);
 	}
 	return {};
 }

@@ -33,11 +33,8 @@ struct Device {
 		HANDLE,
 	};
 
-	static const int CONDITION_COUNT = 8;
-	using Condition = Action;
-
 	struct State {
-		String name;
+		const char *name;
 		uint8_t state;
 	};
 	
@@ -69,36 +66,29 @@ struct Device {
 	static const uint8_t UNSHUT = 103; // open or tilt
 	static const uint8_t UNLOCKED = 104; // closed, open or tilt
 
+	// heating states
+	static const uint8_t NIGHT = 50;
+	static const uint8_t ACTIVE = 101; // currently heating
+
 	// placeholder for a value from 0 - 100
 	static const uint8_t VALUE = 0xff;
 
 
-	// unique id of the device, used by buttons, timers, scenarios and outputs
+	// unique id of the device, used by events, timers, scenarios and conditions
 	uint8_t id;
 	
-	// type of actor (switch, blind)
+	// type of actor
 	Type type;
 
 	// name
 	char name[16];
 	
-	// speed to reach target value
-	uint16_t speed;
+	// configuration values
+	uint16_t value1;
+	uint16_t value2;
 
-	// binding to local output or enocean node
-	uint32_t binding;
-
-	// the output is on if all devices are in the given states
-	Condition conditions[CONDITION_COUNT];
-		
-	int getConditionsCount() const {
-		for (int i = 0; i < CONDITION_COUNT; ++i) {
-			if (!this->conditions[i].isValid())
-				return i;
-		}
-		return CONDITION_COUNT;
-	}
-
+	// output, either local relay or enocean node id (input node id for handle)
+	uint32_t output;
 
 	/**
 	 * Get all states of the device
@@ -119,4 +109,19 @@ struct Device {
 	 * Get possible state transitions of the device
 	 */
 	Array<Transition> getTransitions() const;
+
+	// get transition speed for dimmer or blind
+	int getSpeed() const {return this->value1;}
+
+	// get delay time in milliseconds
+	int getDelay() const {return this->value1;}
+	
+	// get timeout time in milliseconds
+	int getTimeout() const {return this->value2;}
+
+	// actions that execute on this device if conditions apply
+	// note: must be last in struct!
+	Actions actions;
+
+	int byteSize() const {return offsetof(Device, actions) + this->actions.byteSize();}
 };

@@ -40,7 +40,11 @@ public:
 	void fillRectangle(int x, int y, int width, int height, Mode mode = Mode::SET) {
 		fillBitmap(W, H, this->data, x, y, width, height, mode);
 	}
-	
+
+	void hLine(int x, int y, int length, Mode mode = Mode::SET) {
+		fillBitmap(W, H, this->data, x, y, length, 1, mode);
+	}
+
 	//void drawGlyph(int x, int y, int width, int height, const uint8_t *data, Mode mode = Mode::SET) {
 	//	copyBitmapH(W, H, this->data, x, y, width, height, data, mode);
 	//}

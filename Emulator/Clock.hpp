@@ -1,3 +1,4 @@
+
 #pragma once
 
 #include <stdint.h>
@@ -6,14 +7,15 @@
 class Clock {
 public:
 
-	static const int SECONDS_MASK = 0x0000007f; // secons as bcd
-	static const int MINUTES_MASK = 0x00007f00; // minutes as bcd
-	static const int HOURS_MASK   = 0x003f0000; // hours as bcd
-	static const int WEEKDAY_MASK = 0x07000000; // 0 (Monday) to 6 (Sunday)
+	static const uint32_t SECONDS_MASK = 0x0000007f; // secons as bcd
+	static const uint32_t MINUTES_MASK = 0x00007f00; // minutes as bcd
+	static const uint32_t HOURS_MASK   = 0x003f0000; // hours as bcd
+	static const uint32_t WEEKDAY_MASK = 0x07000000; // 0 (Monday) to 6 (Sunday)
 
 	static const int MINUTES_SHIFT = 8;
 	static const int HOURS_SHIFT   = 16;
 	static const int WEEKDAY_SHIFT = 24;
+	
 	
 	Clock() {
 	}

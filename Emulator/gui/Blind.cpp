@@ -25,7 +25,10 @@ Blind::~Blind() {
 }
 
 void Blind::setState(const DeviceState &deviceState) {
-	this->value = deviceState.interpolator >> 16;
+	if (deviceState.mode == DeviceState::TRANSITION)
+		this->value = deviceState.timer >> 16;
+	else
+		this->value = deviceState.state;
 }
 
 void Blind::setState() {

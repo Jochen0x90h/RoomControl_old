@@ -35,6 +35,9 @@ set(GUI
 	gui/Widget.hpp
 	gui/Display.cpp
 	gui/Display.hpp
+	gui/Button.cpp
+	gui/Button.hpp
+	gui/MotionDetector.hpp
 	gui/Poti.cpp
 	gui/Poti.hpp
 	gui/DeviceWidget.cpp
@@ -57,6 +60,7 @@ set(SOURCES
 	Storage.hpp
 	Clock.cpp
 	Clock.hpp
+	String.cpp
 	String.hpp
 	Array.hpp
 	Ticker.hpp
@@ -64,8 +68,10 @@ set(SOURCES
 	Serial.hpp
 	EnOceanProtocol.cpp
 	EnOceanProtocol.hpp
+	Config.hpp
+	Action.cpp
 	Action.hpp
-	Button.hpp
+	Event.hpp
 	Timer.hpp
 	Scenario.hpp
 	Device.cpp

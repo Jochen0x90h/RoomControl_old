@@ -13,9 +13,9 @@ Poti::Poti()
 		"void main() {\n"
 			"vec2 a = xy - vec2(0.5, 0.5f);\n"
 			"float angle = atan(a.y, a.x) - value;\n"
-			"float length = sqrt(a.x * a.x + a.y * a.y);\n"
+			"float radius = sqrt(a.x * a.x + a.y * a.y);\n"
 			"float limit = cos(angle * 24) * 0.02 + 0.48;\n"
-			"pixel = length < limit ? (length < 0.1 ? vec4(state, state, state, 1) : vec4(0.7, 0.7, 0.7, 1)) : vec4(0, 0, 0, 1);\n"
+			"pixel = radius < limit ? (radius < 0.1 ? vec4(state, state, state, 1) : vec4(0.7, 0.7, 0.7, 1)) : vec4(0, 0, 0, 1);\n"
 		"}\n")
 {
 	
