@@ -1,5 +1,7 @@
 #pragma once
 
+#include "assert.hpp"
+
 constexpr int min(int x, int y) {return x < y ? x : y;}
 constexpr int max(int x, int y) {return x > y ? x : y;}
 #ifndef _STDLIB_H_

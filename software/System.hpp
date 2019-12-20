@@ -2,7 +2,6 @@
 
 #include "EnOceanProtocol.hpp"
 #include "Bitmap.hpp"
-#include "Display.hpp"
 #include "Poti.hpp"
 #include "MotionDetector.hpp"
 #include "Temperature.hpp"
@@ -14,7 +13,7 @@
 #include "DeviceState.hpp"
 #include "String.hpp"
 #include "Ticker.hpp"
-#include "Config.hpp"
+#include "config.hpp"
 
 
 class System {

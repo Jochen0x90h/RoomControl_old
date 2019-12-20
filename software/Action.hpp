@@ -1,7 +1,7 @@
 #pragma once
 
+#include "util.hpp"
 #include <stdint.h>
-#include <assert.h>
 #include <stddef.h>
 
 
@@ -71,5 +71,5 @@ struct Actions {
 	const Action *begin() const {return this->actions;}
 	const Action *end() const {return this->actions + this->count;}
 
-	int byteSize() const {return offsetof(Actions, actions[this->count]);}
+	int byteSize() const {return offsetof(Actions, actions) + this->count * sizeof(Action);}
 };

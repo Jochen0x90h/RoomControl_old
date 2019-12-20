@@ -1,5 +1,5 @@
 #include "DeviceState.hpp"
-#include "Config.hpp"
+#include "config.hpp"
 
 
 bool DeviceState::isActive(const Device &device, uint8_t state) {

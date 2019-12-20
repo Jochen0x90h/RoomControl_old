@@ -1,5 +1,11 @@
 #pragma once
 
+// flash configuration
+static const int FLASH_PAGE_SIZE = 1024;
+static const int FLASH_PAGE_COUNT = 16;
+static const int FLASH_WRITE_ALIGN = 2;
+
+// maximum count for object types
 static const int EVENT_COUNT = 32;
 static const int TIMER_COUNT = 32;
 static const int SCENARIO_COUNT = 32;
