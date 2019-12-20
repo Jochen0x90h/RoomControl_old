@@ -2,6 +2,8 @@
 #include <chrono>
 
 
+Clock::Clock() {}
+
 uint32_t Clock::getTime() {
    auto t1 = std::chrono::system_clock::now();
    std::time_t t2 = std::chrono::system_clock::to_time_t(t1);

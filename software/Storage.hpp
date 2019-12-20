@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Flash.hpp"
 #include "util.hpp"
+#include "Flash.hpp"
 #include <stdint.h>
 
 

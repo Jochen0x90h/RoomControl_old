@@ -10,7 +10,7 @@ static const char weekdaysShort[7][4] = {"M", "T", "W", "T", "F", "S", "S"};
 
 
 System::System(Serial::Device device)
-	: protocol(device), storage(16, 16, events, timers, scenarios, devices)
+	: protocol(device), storage(0, Flash::PAGE_COUNT, events, timers, scenarios, devices)
 {
 	// initialize event states
 
@@ -390,7 +390,7 @@ void System::updateMenu() {
 			if (scenarioCount < SCENARIO_COUNT && this->storage.hasSpace(1, offsetof(Scenario, actions.actions[8]))) {
 				if (entry("Add Scenario")) {
 					this->u.device.id = newScenarioId();
-					strcpy(this->u.device.name, "New Scenario");
+					copy("New Scenario", this->u.device.name);
 					this->u.scenario.actions.clear();
 					this->actions = &this->u.scenario.actions;
 					push(ADD_SCENARIO);
@@ -493,7 +493,7 @@ void System::updateMenu() {
 				if (entry("Add Device")) {
 					this->u.device.id = newDeviceId();
 					this->u.device.type = Device::Type::SWITCH;
-					strcpy(this->u.device.name, "New Device");
+					copy("New Device", this->u.device.name);
 					this->u.device.value1 = 0;
 					this->u.device.value2 = 0;
 					this->u.device.output = 0;

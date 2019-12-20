@@ -17,8 +17,7 @@ public:
 	static const int WEEKDAY_SHIFT = 24;
 	
 	
-	Clock() {
-	}
+	Clock();
 	
 	/**
 	 * Get weekday and time packed into one int, see mask and shift constants
