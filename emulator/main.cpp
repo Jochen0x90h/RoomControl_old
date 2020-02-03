@@ -91,11 +91,11 @@ int main(int argc, const char **argv) {
 	std::cout << "sizeof(Device): " << sizeof(Device) << " byteSize(): " << deviceData[0].byteSize() << std::endl;
 
 	// erase emulated flash
-	memset(Flash::data, 0xff, sizeof(Flash::data));
+	memset(const_cast<uint8_t*>(Flash::getAddress(0)), 0xff, Flash::PAGE_COUNT * Flash::PAGE_SIZE);
 
 	// read flash contents from file
 	std::ifstream is("flash.bin", std::ios::binary);
-	//is.read((char*)Flash::data, sizeof(Flash::data));
+	//is.read(reinterpret_cast<char*>(const_cast<uint8_t*>(Flash::getAddress(0))), Flash::PAGE_COUNT * Flash::PAGE_SIZE);
 	is.close();
 
 	// get device from command line
@@ -260,7 +260,7 @@ int main(int argc, const char **argv) {
 
 	// write flash
 	std::ofstream os("flash.bin", std::ios::binary);
-	os.write((char*)Flash::data, sizeof(Flash::data));
+	os.write(reinterpret_cast<const char*>(Flash::getAddress(0)), Flash::PAGE_COUNT * Flash::PAGE_SIZE);
 	os.close();
 
 	// cleanup

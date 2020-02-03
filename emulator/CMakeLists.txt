@@ -51,59 +51,60 @@ set(GUI
 )
 source_group(gui FILES ${GUI})
 
+# CLion: Software directory is in External Libraries -> Header Search Paths -> Software
+set(SOFTWARE
+	../software/util.hpp
+	../software/String.cpp
+	../software/String.hpp
+	../software/Array.hpp
+	../software/Bitmap.cpp
+	../software/Bitmap.hpp
+	../software/Font.cpp
+	../software/Font.hpp
+	../software/tahoma_8pt.cpp
+	../software/tahoma_8pt.hpp
+	../software/Flash.hpp
+	../software/Storage.cpp
+	../software/Storage.hpp
+	../software/Clock.hpp
+	../software/EnOceanProtocol.cpp
+	../software/EnOceanProtocol.hpp
+	../software/Action.cpp
+	../software/Action.hpp
+	../software/Event.hpp
+	../software/Timer.hpp
+	../software/Scenario.hpp
+	../software/Device.cpp
+	../software/Device.hpp
+	../software/DeviceState.cpp
+	../software/DeviceState.hpp
+	../software/System.cpp
+	../software/System.hpp
+)
+source_group(software FILES ${SOFTWARE})
+
 set(SOURCES
 	main.cpp
-	util.hpp
+	config.hpp
+	assert.hpp
 	Flash.cpp
-	Flash.hpp
-	Storage.cpp
-	Storage.hpp
 	Clock.cpp
-	Clock.hpp
-	String.cpp
-	String.hpp
-	Array.hpp
 	Ticker.hpp
 	Serial.cpp
 	Serial.hpp
-	EnOceanProtocol.cpp
-	EnOceanProtocol.hpp
-	Config.hpp
-	Action.cpp
-	Action.hpp
-	Event.hpp
-	Timer.hpp
-	Scenario.hpp
-	Device.cpp
-	Device.hpp
-	DeviceState.cpp
-	DeviceState.hpp
-	System.cpp
-	System.hpp
 )
 source_group("" FILES ${SOURCES})
-
-# CLion: Fonts are in External Libraries -> Header Search Paths -> Fonts
-set(DISPLAY
-	../Display/Bitmap.cpp
-	../Display/Bitmap.hpp
-	../Display/Font.cpp
-	../Display/Font.hpp
-	../Display/tahoma_8pt.cpp
-	../Display/tahoma_8pt.hpp
-)
-source_group(Display FILES ${DISPLAY})
 
 add_executable(emulator
 	${GLAD}
 	${GUI}
+	${SOFTWARE}
 	${SOURCES}
-	${DISPLAY}
 )
 include_directories(emulator
 	PRIVATE
 		.
-		../Display
+		../software
 		${Boost_INCLUDE_DIR}
 )
 target_link_libraries(emulator

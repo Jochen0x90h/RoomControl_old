@@ -2,7 +2,7 @@
 
 #include "LayoutManager.hpp"
 #include <stdlib.h> // prevent second definition of abs() in util.hpp
-#include "../DeviceState.hpp"
+#include "DeviceState.hpp"
 
 
 class DeviceWidget : public Widget {
