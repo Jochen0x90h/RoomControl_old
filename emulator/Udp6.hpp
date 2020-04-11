@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Context.hpp"
+#include "global.hpp"
 
 
 /**
@@ -9,17 +9,28 @@
 class Udp6 {
 public:
 
-	Udp6(Context &context, uint16_t port);
-
-	virtual ~Udp6();
+	// IPv6 UDP address
+	using Udp6Address = asio::ip::address_v6::bytes_type;
 
 	// IP address and port of an IPv6 endpoint
-	struct Endpoint
+	struct Udp6Endpoint
 	{
-		Address address;
+		Udp6Address address;
 		uint16_t scope;
 		uint16_t port;
 	};
+
+
+	/**
+	 * UDP/IPv6
+	 * @param port port to bind to
+	 */
+	Udp6(uint16_t port)
+		: emulatorSocket(global::context, asio::ip::udp::endpoint(asio::ip::udp::v6(), port))
+	{}
+
+	virtual ~Udp6();
+
 
 	/**
 	 * Setup for receiving data. When a packet arrives, onReceive() gets called
@@ -27,15 +38,13 @@ public:
 	 * @param data space for received packet data
 	 * @param length maximum packet length
 	 */
-	void receive(Endpoint &sender, uint8_t *data, int length);
+	void receiveUdp6(Udp6Endpoint &sender, uint8_t *data, int length);
 
 	/**
-	 * Called when a packet arrived
-	 * @param sender sender of the packet
-	 * @param data packet data
+	 * Called when a packet was received
 	 * @param length packet length
 	 */
-	virtual void onReceive(const Endpoint &sender, const uint8_t *data, int length) = 0;
+	virtual void onReceivedUdp6(int length) = 0;
 
 	/**
 	 * Send a packet to a receiver. When finished, onSent() gets called
@@ -43,17 +52,17 @@ public:
 	 * @param data packet data
 	 * @param length packet length
 	 */
-	void send(const Endpoint &receiver, const uint8_t *data, int length);
+	void sendUdp6(const Udp6Endpoint &receiver, const uint8_t *data, int length);
 
 	/**
 	 * Called when send operation has finished
 	 */
-	virtual void onSent(const uint8_t *data, int length) = 0;
+	virtual void onSentUdp6() = 0;
 
 protected:
 	
-	asio::ip::udp::socket socket;
+	asio::ip::udp::socket emulatorSocket;
 
 	// cache for endpoint of sender when receiving data
-	asio::ip::udp::endpoint sender;
+	asio::ip::udp::endpoint emulatorSender;
 };

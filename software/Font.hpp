@@ -1,5 +1,6 @@
 #pragma once
 
+#include "String.hpp"
 #include <stdint.h>
 
 
@@ -14,7 +15,7 @@ struct Character {
 };
 
 struct Font {
-	static const int TAB_WIDTH = 5;
+	static int const TAB_WIDTH = 5;
 	
 	// common character height
 	uint8_t height;
@@ -27,11 +28,10 @@ struct Font {
 	unsigned char last;
 	
 	// characters supported by the font
-	Character const * characters;
+	Character const *characters;
 
 	// glyph bitmap data
-	uint8_t const * bitmap;
+	uint8_t const *bitmap;
 	
-	int calcWidth(const char *text, int space);
-	int calcWidth(const char *text, int length, int space);
+	int calcWidth(String text, int space = 1);
 };

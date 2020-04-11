@@ -3,19 +3,19 @@
 #include <cassert>
 
 
-static MqttSnClient::Endpoint const broadcast = {
+static MqttSnClient::Udp6Endpoint const broadcast = {
 	//{0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
 	{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
 	0,
-	47193
+	MqttSnClient::GATEWAY_PORT
 };
 
 
-MqttSnClient::MqttSnClient(Context &context, uint16_t port)
-	: Udp6(context, port), SteadyTimer(context)
+MqttSnClient::MqttSnClient()
+	: Udp6(CLIENT_PORT), SystemTimer()
 {
 	// enable receiving of packets
-	receive(this->sender, this->receivePacket, sizeof(this->receivePacket));
+	receiveUdp6(this->sender, this->receivePacket, sizeof(this->receivePacket));
 }
 
 MqttSnClient::~MqttSnClient() {
@@ -33,12 +33,12 @@ MqttSnClient::Result MqttSnClient::searchGateway() {
 	// before sending, wait for a jitter time to prevent flooding of gateway when multiple clients are switched on.
 	// Therefore the random value must be different for each client (either hardware or client id dependent)
 	//todo: use random time
-	set(now() + 100ms);
+	setSystemTimeout(getSystemTime() + 100ms);
 		
 	return Result::OK;
 }
 
-MqttSnClient::Result MqttSnClient::connect(Endpoint const &gateway, uint8_t gatewayId, String clientId,
+MqttSnClient::Result MqttSnClient::connect(Udp6Endpoint const &gateway, uint8_t gatewayId, String clientId,
 	bool cleanSession, bool willFlag)
 {
 	// check client state and options
@@ -70,7 +70,7 @@ MqttSnClient::Result MqttSnClient::connect(Endpoint const &gateway, uint8_t gate
 
 	// send packet (retransmission timeout is set in onSent())
 	this->busy = true;
-	send(this->gateway, this->sendPacket, this->sendLength);
+	sendUdp6(this->gateway, this->sendPacket, this->sendLength);
 
 	// update state
 	this->state = State::CONNECTING;
@@ -91,7 +91,7 @@ MqttSnClient::Result MqttSnClient::disconnect() {
 
 	// send packet (retransmission timeout is set in onSent())
 	this->busy = true;
-	send(this->gateway, this->sendPacket, this->sendLength);
+	sendUdp6(this->gateway, this->sendPacket, this->sendLength);
 
 	// update state
 	if (isConnected())
@@ -113,7 +113,7 @@ MqttSnClient::Result MqttSnClient::ping() {
 
 	// send packet (retransmission timeout is set in onSent())
 	this->busy = true;
-	send(this->gateway, this->sendPacket, this->sendLength);
+	sendUdp6(this->gateway, this->sendPacket, this->sendLength);
 
 	return Result::OK;
 }
@@ -134,7 +134,7 @@ MqttSnClient::Result MqttSnClient::registerTopic(String topic) {
 
 	// send packet (retransmission timeout is set in onSent())
 	this->busy = true;
-	send(this->gateway, this->sendPacket, this->sendLength);
+	sendUdp6(this->gateway, this->sendPacket, this->sendLength);
 
 	return Result::OK;
 }
@@ -163,13 +163,13 @@ MqttSnClient::Result MqttSnClient::publish(uint16_t topicId, const uint8_t *data
 
 	// send packet (retransmission timeout is set in onSent())
 	this->busy = true;
-	send(this->gateway, this->sendPacket, this->sendLength);
+	sendUdp6(this->gateway, this->sendPacket, this->sendLength);
 
 	return Result::OK;
 }
 
-MqttSnClient::Result MqttSnClient::subscribeTopic(const char *topic, uint16_t topicLength) {
-	if (topic == nullptr || topicLength == 0)
+MqttSnClient::Result MqttSnClient::subscribeTopic(String topic) {
+	if (topic.empty())
 		return Result::INVALID_PARAMETER;
 	if (!isConnected())
 		return Result::INVALID_STATE;
@@ -183,21 +183,21 @@ MqttSnClient::Result MqttSnClient::subscribeTopic(const char *topic, uint16_t to
 	MQTTSN_topicid t;
 	memset(&t, 0, sizeof(MQTTSN_topicid));
 	t.type = MQTTSN_TOPIC_TYPE_NORMAL;
-	t.data.long_.name = const_cast<char*>(topic);
-	t.data.long_.len  = topicLength;
+	t.data.long_.name = const_cast<char*>(topic.data);
+	t.data.long_.len = topic.length;
 
 	// serialize packet
 	this->sendLength = MQTTSNSerialize_subscribe(this->sendPacket, PACKET_MAX_LENGTH, dup, qos, nextPacketId(), &t);
 
 	// send packet (retransmission timeout is set in onSent())
 	this->busy = true;
-	send(this->gateway, this->sendPacket, this->sendLength);
+	sendUdp6(this->gateway, this->sendPacket, this->sendLength);
 
 	return Result::OK;
 }
 
-MqttSnClient::Result MqttSnClient::unsubscribeTopic(const char *topic, uint16_t topicLength) {
-	if (topic == nullptr || topicLength == 0)
+MqttSnClient::Result MqttSnClient::unsubscribeTopic(String topic) {
+	if (topic.empty())
 		return Result::INVALID_PARAMETER;
 	if (!isConnected())
 		return Result::INVALID_STATE;
@@ -208,15 +208,15 @@ MqttSnClient::Result MqttSnClient::unsubscribeTopic(const char *topic, uint16_t 
 	MQTTSN_topicid t;
 	memset(&t, 0, sizeof(MQTTSN_topicid));
 	t.type = MQTTSN_TOPIC_TYPE_NORMAL;
-	t.data.long_.name = const_cast<char*>(topic);
-	t.data.long_.len  = topicLength;
+	t.data.long_.name = const_cast<char*>(topic.data);
+	t.data.long_.len  = topic.length;
 
 	// serialize packet
 	this->sendLength = MQTTSNSerialize_unsubscribe(this->sendPacket, PACKET_MAX_LENGTH, nextPacketId(), &t);
 	
 	// send packet (retransmission timeout is set in onSent())
 	this->busy = true;
-	send(this->gateway, this->sendPacket, this->sendLength);
+	sendUdp6(this->gateway, this->sendPacket, this->sendLength);
 
 	return Result::OK;
 }
@@ -231,19 +231,19 @@ void MqttSnClient::requestNext() {
 		return;
 		
 	if (!this->busy)
-		set(doNext(this->keepAliveTime));
+		setSystemTimeout(doNext(this->keepAliveTime));
 	else
 		this->timeoutPending = true;
 }
 
-void MqttSnClient::onReceive(const Endpoint &sender, const uint8_t *data, int length) {
+void MqttSnClient::onReceivedUdp6(int length) {
 	if (!this->busy)
-		processPacket(sender, data, length);
+		processPacket(this->sender, this->receivePacket, length);
 	else
 		this->receiveLength = length;
 }
 
-void MqttSnClient::onSent(const uint8_t *data, int length) {
+void MqttSnClient::onSentUdp6() {
 	this->busy = false;
 
 	State state = this->state;
@@ -253,7 +253,7 @@ void MqttSnClient::onSent(const uint8_t *data, int length) {
 	case State::SEARCHING_GATEWAY:
 	case State::CONNECTING:
 		// set timer for retransmission if this connect request fails
-		set(now() + RETRANSMISSION_INTERVAL);
+		setSystemTimeout(getSystemTime() + RETRANSMISSION_INTERVAL);
 		break;
 	default:
 		;
@@ -267,7 +267,7 @@ void MqttSnClient::onSent(const uint8_t *data, int length) {
 	
 	// process a pending timeout
 	if (!this->busy && this->timeoutPending) {
-		processTimeout(now());
+		processTimeout(getSystemTime());
 		this->timeoutPending = false;
 	}
 /*
@@ -279,7 +279,7 @@ void MqttSnClient::onSent(const uint8_t *data, int length) {
 */
 }
 
-void MqttSnClient::onTimeout(SteadyTime time) {
+void MqttSnClient::onSystemTimeout(SystemTime time) {
 	if (!this->busy) {
 		processTimeout(time);
 	} else {
@@ -287,35 +287,35 @@ void MqttSnClient::onTimeout(SteadyTime time) {
 	}
 }
 
-void MqttSnClient::processTimeout(SteadyTime time) {
+void MqttSnClient::processTimeout(SystemTime time) {
 	switch (this->state) {
 	case State::STOPPED:
 		break;
 	case State::SEARCHING_GATEWAY:
 		// try again (CONNECT packet)
-		send(broadcast, this->sendPacket, this->sendLength);
+		sendUdp6(broadcast, this->sendPacket, this->sendLength);
 		break;
 	case State::CONNECTING:
 		// try again (SEARCHGW packet)
-		send(this->gateway, this->sendPacket, this->sendLength);
+		sendUdp6(this->gateway, this->sendPacket, this->sendLength);
 		break;
 	case State::CONNECTED:
 		if (time >= this->keepAliveTime) {
 			// send keep alive message to gateway
-			this->keepAliveTime = now() + RETRANSMISSION_INTERVAL;
+			this->keepAliveTime = getSystemTime() + RETRANSMISSION_INTERVAL;
 			ping();
 			
 			// another timeout for doNext() after ping has been sent
 			this->timeoutPending = true;
 		} else {
-			set(doNext(this->keepAliveTime));
+			setSystemTimeout(doNext(this->keepAliveTime));
 		}
 	default:
 		;
 	}
 }
 
-void MqttSnClient::processPacket(Endpoint const &sender, uint8_t const *data, int length) {
+void MqttSnClient::processPacket(Udp6Endpoint const &sender, uint8_t const *data, int length) {
 	// check length of packet
 	int packetLength;
 	int typeOffset = MQTTSNPacket_decode(const_cast<uint8_t*>(data), length, &packetLength);
@@ -362,8 +362,8 @@ void MqttSnClient::processPacket(Endpoint const &sender, uint8_t const *data, in
 					{
 					case MQTTSN_RC_ACCEPTED:
 						// set keep alive timer
-						this->keepAliveTime = now() + KEEP_ALIVE_INTERVAL;
-						set(this->keepAliveTime);
+						this->keepAliveTime = getSystemTime() + KEEP_ALIVE_INTERVAL;
+						setSystemTimeout(this->keepAliveTime);
 
 						// now we are connected to the gateway
 						this->state = State::CONNECTED;
@@ -384,18 +384,18 @@ void MqttSnClient::processPacket(Endpoint const &sender, uint8_t const *data, in
 		break;
 	default:
 		// all other satates such as CONNECTED
-		this->keepAliveTime = now() + KEEP_ALIVE_INTERVAL;
+		this->keepAliveTime = getSystemTime() + KEEP_ALIVE_INTERVAL;
 		switch (messageType) {
 		case MQTTSN_DISCONNECT:
 			// sent by the gateway in response to our disconnect request
 			switch (this->state) {
 			case State::DISCONNECTING:
-				stop();
+				stopSystemTimeout();
 				this->state = State::STOPPED;
 				onDisconnected();
 				break;
 			case State::WAITING_FOR_SLEEP:
-				stop();
+				stopSystemTimeout();
 				this->state = State::ASLEEP;
 				onSleep();
 				break;
@@ -542,7 +542,7 @@ void MqttSnClient::processPacket(Endpoint const &sender, uint8_t const *data, in
 	}
 	
 	// re-enable receiving of packets
-	receive(this->sender, this->receivePacket, sizeof(this->receivePacket));
+	receiveUdp6(this->sender, this->receivePacket, sizeof(this->receivePacket));
 }
 
 uint16_t MqttSnClient::nextPacketId() {

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Udp6.hpp"
-#include "SteadyTimer.hpp"
+#include "SystemTimer.hpp"
 #include "String.hpp"
 #include "MQTTSNPacket.h"
 
@@ -10,17 +10,20 @@
  * MQTT-SN client inspired by C implementation by Nordic Semiconductor
  * http://www.mqtt.org/new/wp-content/uploads/2009/06/MQTT-SN_spec_v1.2.pdf
  */
-class MqttSnClient : public Udp6, public SteadyTimer {
+class MqttSnClient : public Udp6, public SystemTimer {
 public:
 
-	// Default port MQTT-SN client binds to
-	static constexpr int DEFAULT_CLIENT_PORT = 47193;
+	// Port the MQTT-SN client binds to
+	static constexpr int CLIENT_PORT = 47194;
+
+	// Port of the gateway
+	static constexpr int GATEWAY_PORT = 47193;
 
 	// Default retransmission time
-	static constexpr SteadyDuration RETRANSMISSION_INTERVAL = 8s;
+	static constexpr SystemDuration RETRANSMISSION_INTERVAL = 8s;
 
 	// The MQTT broker disconnects us if we don't send anything in one and a half times the keep alive interval
-	static constexpr SteadyDuration KEEP_ALIVE_INTERVAL = 60s;
+	static constexpr SystemDuration KEEP_ALIVE_INTERVAL = 60s;
 
 	// Default time in seconds for which MQTT-SN Client is considered alive by the MQTT-SN Gateway
 	//static constexpr int DEFAULT_ALIVE_DURATION = 60;
@@ -65,7 +68,7 @@ public:
 	};
 	
 
-	MqttSnClient(Context &context, uint16_t port = DEFAULT_CLIENT_PORT);
+	MqttSnClient();
 
 	~MqttSnClient() override;
 
@@ -104,7 +107,7 @@ public:
 	 * @param cleanSession clean session flag
 	 * @param willFlag if set, the gateway will request the will topic and will message
 	 */
-	Result connect(Endpoint const &gateway, uint8_t gatewayId, String clientId, bool cleanSession = false,
+	Result connect(Udp6Endpoint const &gateway, uint8_t gatewayId, String clientId, bool cleanSession = false,
 		bool willFlag = false);
 	
 	/**
@@ -141,12 +144,12 @@ public:
 	/**
 	 * Subscribe to a topic. On success, onSubscribed() is called with a topicId that is used in subsequent onPublish() calls
 	 */
-	Result subscribeTopic(const char *topic, uint16_t topicLength);
+	Result subscribeTopic(String topic);
 
 	/**
 	 * Unsubscribe from a topic. On success, onUnsubscribed() is called
 	 */
-	Result unsubscribeTopic(const char *topic, uint16_t topicLength);
+	Result unsubscribeTopic(String topic);
 
 	//Result updateWillTopic();
 	//Result updateWillMessage();
@@ -160,7 +163,7 @@ protected:
 	// -----------------------------------------------------------------
 		
 	// Client has found a gateway
-	virtual void onGatewayFound(Endpoint const &sender, uint8_t gatewayId) = 0;
+	virtual void onGatewayFound(Udp6Endpoint const &sender, uint8_t gatewayId) = 0;
 
 	// Client has connected successfully
 	virtual void onConnected() = 0;
@@ -181,7 +184,7 @@ protected:
 	virtual void onRegistered(uint16_t packetId, uint16_t topicId) = 0;
 
 	// Gateway publishes a message on a subscribed topic
-	virtual void onPublish(uint16_t topicId, uint8_t *data, int length, bool retained, int8_t qos) = 0;
+	virtual void onPublish(uint16_t topicId, uint8_t const *data, int length, bool retained, int8_t qos) = 0;
 
 	// Client has published a message successfully
 	virtual void onPublished(uint16_t packetId, uint16_t topicId) = 0;
@@ -229,25 +232,25 @@ public:
 	 * The user can do the next action (e.g. publish()) and indicate the time when more actions are intended
 	 * @return time when doNext() should be called again
 	 */
-	virtual SteadyTime doNext(SteadyTime time) = 0;
+	virtual SystemTime doNext(SystemTime time) = 0;
 
 protected:
 
 	// transport
 	// ---------
 
-	void onReceive(const Endpoint &sender, const uint8_t *data, int length) override;
+	void onReceivedUdp6(int length) override;
 
-	void onSent(const uint8_t *data, int length) override;
+	void onSentUdp6() override;
 
-	void onTimeout(SteadyTime time) override;
+	void onSystemTimeout(SystemTime time) override;
     
 
 	// internal
 	// --------
 	
-	void processPacket(const Endpoint &sender, const uint8_t *data, int length);
-	void processTimeout(SteadyTime time);
+	void processPacket(const Udp6Endpoint &sender, const uint8_t *data, int length);
+	void processTimeout(SystemTime time);
 	
 	uint16_t nextPacketId();
 
@@ -256,7 +259,7 @@ protected:
 		
 	// gateway
 	uint8_t gatewayId;
-	Endpoint gateway;
+	Udp6Endpoint gateway;
 
 	// id for next packet
 	uint16_t packetId = 0;
@@ -269,11 +272,11 @@ protected:
 	bool busy = false;
 
 	// cache for received packet
-	Endpoint sender;
+	Udp6Endpoint sender;
 	uint8_t receivePacket[PACKET_MAX_LENGTH];
 	int receiveLength = 0;
 	
 	// next time for keep alive message to the gateway
-	SteadyTime keepAliveTime;
+	SystemTime keepAliveTime;
 	bool timeoutPending = false;
 };

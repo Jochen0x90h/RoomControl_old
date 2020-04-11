@@ -1,5 +1,6 @@
 #pragma once
 
+#include "String.hpp"
 #include "Font.hpp"
 
 
@@ -45,29 +46,21 @@ public:
 		fillBitmap(W, H, this->data, x, y, length, 1, mode);
 	}
 
-	//void drawGlyph(int x, int y, int width, int height, const uint8_t *data, Mode mode = Mode::SET) {
-	//	copyBitmapH(W, H, this->data, x, y, width, height, data, mode);
-	//}
-
-	///
-	/// draw text
-	/// @return x coordinate of end of text
-	int drawText(int x, int y, const Font &font, const char *text, int space, Mode frontMode = Mode::SET,
+	/**
+	 * Draw text onto bitmap
+	 * @param x
+	 * @param y
+	 * @param font
+	 * @param text
+	 * @param space
+	 * @param frontMode
+	 * @param backMode
+	 * @return x coordinate of end of text
+	 */
+	int drawText(int x, int y, const Font &font, String text, int space = 1, Mode frontMode = Mode::SET,
 		Mode backMode = Mode::KEEP)
 	{
-		if (text == nullptr)
-			return 0;
-		int length = 0;
-		while (text[length] != 0)
-			++length;
-		return drawText(x, y, font, text, length, space, frontMode, backMode);
-	}
-
-	int drawText(int x, int y, const Font &font, const char *text, int length, int space, Mode frontMode = Mode::SET,
-		Mode backMode = Mode::KEEP)
-	{
-		while (length > 0) {
-			unsigned char ch = *text;
+		for (unsigned char ch : text) {
 			if (ch == '\t') {
 				x += Font::TAB_WIDTH;
 			} else {
@@ -84,10 +77,6 @@ public:
 				fillBitmap(W, H, this->data, x, y, space, font.height, backMode);
 				x += space;
 			}
-
-			// next character
-			++text;
-			--length;
 		}
 		return x;
 	}

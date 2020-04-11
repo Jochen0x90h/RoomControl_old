@@ -2,14 +2,35 @@
 #include <chrono>
 
 
-Clock::Clock() {}
+Clock::Clock()
+	: emulatorClock(global::context)
+{
+	auto utc = boost::date_time::second_clock<boost::posix_time::ptime>::universal_time();
+	setClockTimeout(utc);
+}
 
-uint32_t Clock::getTime() {
-   auto t1 = std::chrono::system_clock::now();
-   std::time_t t2 = std::chrono::system_clock::to_time_t(t1);
-   std::tm *t = std::localtime(&t2);
+Clock::~Clock() {}
 
-   int weekday = t->tm_wday == 0 ? 6 : t->tm_wday - 1;
+Clock::ClockTime Clock::getClockTime() {
+	auto time = boost::date_time::second_clock<boost::posix_time::ptime>::local_time();
+	auto t = time.time_of_day();
+	int seconds = t.seconds();
+	int minutes = t.minutes();
+	int hours = t.hours();
+	auto d = time.date();
+	int weekDay = (d.day_of_week() + 6) % 7;
+	return ClockTime(weekDay, hours, minutes, seconds);
+}
 
-   return time(t->tm_hour, t->tm_min, t->tm_sec) | weekday << WEEKDAY_SHIFT;
+void Clock::setClockTimeout(boost::posix_time::ptime utc) {
+	this->emulatorClock.expires_at(utc);
+	this->emulatorClock.async_wait([this] (boost::system::error_code error) {
+		if (!error) {
+			onSecondElapsed();
+			
+			// set next timeout in one second
+			auto utc = boost::date_time::second_clock<boost::posix_time::ptime>::universal_time();
+			setClockTimeout(utc + boost::posix_time::seconds(1));
+		}
+	});
 }

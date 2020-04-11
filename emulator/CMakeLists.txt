@@ -8,6 +8,10 @@ project(Emulator)
 
 #set(CMAKE_VERBOSE_MAKEFILE ON)
 
+# add packet encoder/decoder libraries (MQTTSNPacketClient and MQTTSNPacketServer)
+# https://github.com/eclipse/paho.mqtt-sn.embedded-c
+add_subdirectory(../MQTTSNPacket/src MQTTSNPacket)
+
 # use C++17 standard by default
 set(CMAKE_CXX_STANDARD 17)
 
@@ -29,34 +33,10 @@ set(GLAD
 )
 source_group(glad FILES ${GLAD})
 
-set(GUI
-	gui/LayoutManager.hpp
-	gui/Widget.cpp
-	gui/Widget.hpp
-	gui/Display.cpp
-	gui/Display.hpp
-	gui/Button.cpp
-	gui/Button.hpp
-	gui/MotionDetector.hpp
-	gui/Poti.cpp
-	gui/Poti.hpp
-	gui/DeviceWidget.cpp
-	gui/DeviceWidget.hpp
-	gui/Light.cpp
-	gui/Light.hpp
-	gui/Blind.cpp
-	gui/Blind.hpp
-	gui/Temperature.cpp
-	gui/Temperature.hpp
-)
-source_group(gui FILES ${GUI})
-
 # CLion: Software directory is in External Libraries -> Header Search Paths -> Software
 set(SOFTWARE
-	../software/util.hpp
-	../software/String.cpp
 	../software/String.hpp
-	../software/Array.hpp
+	../software/StringBuffer.hpp
 	../software/Bitmap.cpp
 	../software/Bitmap.hpp
 	../software/Font.cpp
@@ -64,47 +44,70 @@ set(SOFTWARE
 	../software/tahoma_8pt.cpp
 	../software/tahoma_8pt.hpp
 	../software/Flash.hpp
-	../software/Storage.cpp
-	../software/Storage.hpp
-	../software/Clock.hpp
-	../software/EnOceanProtocol.cpp
-	../software/EnOceanProtocol.hpp
-	../software/Action.cpp
-	../software/Action.hpp
-	../software/Event.hpp
-	../software/Timer.hpp
-	../software/Scenario.hpp
-	../software/Device.cpp
-	../software/Device.hpp
-	../software/DeviceState.cpp
-	../software/DeviceState.hpp
-	../software/System.cpp
-	../software/System.hpp
+	../software/MqttSnClient.cpp
+	../software/MqttSnClient.hpp
+	../software/RoomControl.cpp
+	../software/RoomControl.hpp
+	#../software/util.hpp
+	#../software/Array.hpp
+	#../software/Storage.cpp
+	#../software/Storage.hpp
+	#../software/Clock.hpp
+	#../software/EnOceanProtocol.cpp
+	#../software/EnOceanProtocol.hpp
+	#../software/Action.cpp
+	#../software/Action.hpp
+	#../software/Event.hpp
+	#../software/Timer.hpp
+	#../software/Scenario.hpp
+	#../software/Device.cpp
+	#../software/Device.hpp
+	#../software/DeviceState.cpp
+	#../software/DeviceState.hpp
+	#../software/System.cpp
+	#../software/System.hpp
 )
 source_group(software FILES ${SOFTWARE})
 
-set(SOURCES
+set(EMULATOR
 	main.cpp
-	config.hpp
 	assert.hpp
-	Flash.cpp
+	config.hpp
+	global.cpp
+	global.hpp
+	SystemTimer.cpp
+	SystemTimer.hpp
 	Clock.cpp
-	Ticker.hpp
-	Serial.cpp
-	Serial.hpp
+	Clock.hpp
+	Udp6.cpp
+	Udp6.hpp
+	Display.cpp
+	Display.hpp
+	Inputs.cpp
+	Inputs.hpp
+	Outputs.cpp
+	Outputs.hpp
+	Poti.cpp
+	Poti.hpp
+	Flash.cpp
+	Gui.cpp
+	Gui.hpp
+	#Ticker.hpp
+	#Serial.cpp
+	#Serial.hpp
 )
-source_group("" FILES ${SOURCES})
+source_group(emulator FILES ${EMULATOR})
 
 add_executable(emulator
 	${GLAD}
-	${GUI}
 	${SOFTWARE}
-	${SOURCES}
+	${EMULATOR}
 )
 include_directories(emulator
 	PRIVATE
 		.
 		../software
+		../MQTTSNPacket/src
 		${Boost_INCLUDE_DIR}
 )
 target_link_libraries(emulator
@@ -113,4 +116,5 @@ target_link_libraries(emulator
 		${CMAKE_THREAD_LIBS_INIT}
 		${CMAKE_DL_LIBS}
 		${Boost_SYSTEM_LIBRARY}
+		MQTTSNPacketClient
 )

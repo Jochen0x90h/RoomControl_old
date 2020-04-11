@@ -1,5 +1,5 @@
 //#include <iostream>
-#include "System.hpp"
+#include "RoomControl.hpp"
 
 // font
 #include "tahoma_8pt.hpp"
@@ -9,109 +9,44 @@ static const char weekdays[7][4] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "S
 static const char weekdaysShort[7][4] = {"M", "T", "W", "T", "F", "S", "S"};
 
 
-System::System(Serial::Device device)
-	: protocol(device), storage(0, Flash::PAGE_COUNT, events, timers, scenarios, devices)
-{
-	// initialize event states
-
-	// initialize device states
-	for (int i = 0; i < this->devices.size(); ++i) {
-		this->deviceStates[i].init(this->devices[i]);
-	}
-}
-	
-void System::onPacket(uint8_t packetType, const uint8_t *data, int length, const uint8_t *optionalData, int optionalLength)
-{
-	//std::cout << "onPacket " << length << " " << optionalLength << std::endl;
-
-	if (packetType == EnOceanProtocol::RADIO_ERP1) {
-		if (length >= 7 && data[0] == 0xf6) {
-			
-			uint32_t nodeId = (data[2] << 24) | (data[3] << 16) | (data[4] << 8) | data[5];
-			int state = data[1];
-			//std::cout << "nodeId " << std::hex << nodeId << " state " << state << std::dec << std::endl;
-
-			if (state != 0) {
-				onEvent(nodeId, state);
-			}
-		}
-		if (optionalLength >= 7) {
-			uint32_t destinationId = (optionalData[1] << 24) | (optionalData[2] << 16) | (optionalData[3] << 8) | optionalData[4];
-			int dBm = -optionalData[5];
-			int security = optionalData[6];
-			//std::cout << "destinationId " << std::hex << destinationId << std::dec << " dBm " << dBm << " security " << security << std::endl;
-		}
-	}
-}
-	
-void System::update() {
-	// update motion detector
-	if (this->motionDetector.isActivated()) {
-		onEvent(0, 0);
-	}
-	
-	// update timers
-	{
-		// get current time in minutes
-		uint32_t time = this->clock.getTime() & ~Clock::SECONDS_MASK;
-		if (time != this->lastTime) {
-			for (const Timer &timer : this->timers) {
-				int weekday = (time & Clock::WEEKDAY_MASK) >> Clock::WEEKDAY_SHIFT;
-				if (((timer.time ^ time) & (Clock::MINUTES_MASK | Clock::HOURS_MASK)) == 0
-					&& (timer.weekdays & weekday))
-				{
-					// trigger alarm
-					doFirstActionAndToast(timer.actions);
-				}
-			}
-			this->lastTime = time;
-		}
-	}
-	
-	// update enocean protocol
-	if (this->protocol.update()) {
-		uint8_t packetType = this->protocol.getPacketType();
-		uint8_t packetLength = this->protocol.getPacketLength();
-		uint8_t optionalLength = this->protocol.getOptionalLength();
-		uint8_t* data = this->protocol.getData();
-		
-		onPacket(packetType, data, packetLength, data + packetLength, optionalLength);
-
-		this->protocol.discardFrame();
-	}
-	
-	// update devices
-	int outputs = 0;
-	{
-		uint32_t ticks = this->ticker.getTicks();
-
-		// elapsed time in milliseconds
-		uint32_t d = ticks - this->lastTicks;
-
-		for (int index = 0; index < this->devices.size(); ++index) {
-			const Device &device = this->devices[index];
-			DeviceState &deviceState = this->deviceStates[index];
-			
-			// update device
-			outputs |= deviceState.update(device, d, 0);
-		
-			// apply conditions
-			applyConditions(device, deviceState);
-		}
-	
-		this->lastTicks = ticks;
-	}
-	//std::cout << outputs << std::endl;
-
-	// update temperature
-	this->temperature.update();
-	
-	// update menu
-	updateMenu();
+RoomControl::~RoomControl() {
 }
 
 
-void System::updateMenu() {
+// MqttSnClient
+// ------------
+
+
+// Clock
+// -----
+
+void RoomControl::onSecondElapsed() {
+	updateMenu(0, false);
+	setDisplay(this->bitmap);
+}
+
+
+// Display
+// -------
+
+void RoomControl::onDisplayReady() {
+
+}
+
+
+// Poti
+// ----
+
+void RoomControl::onPotiChanged(int delta, bool activated) {
+	updateMenu(delta, activated);
+	setDisplay(this->bitmap);
+}
+
+
+// Menu
+// ----
+
+void RoomControl::updateMenu(int delta, bool activated) {
 	// if menu entry was activated, read menu state from stack
 	if (this->activated) {
 		this->state = this->stack[this->stackIndex].state;
@@ -125,18 +60,15 @@ void System::updateMenu() {
 		this->entryIndex = 0xffff;
 	}
 
-	int delta = this->poti.getDelta();
-	bool activated = this->poti.isActivated();
-
 	// clear bitmap
-	bitmap.clear();
+	this->bitmap.clear();
 
 	// toast
-	if (!this->buffer.empty() && this->ticker.getTicks() - this->toastTime < 3000) {
-		const char *name = this->buffer;
+	if (!this->buffer.empty() && getSystemTime() - this->toastTime < 3s) {
+		String text = this->buffer;
 		int y = 10;
-		int len = tahoma_8pt.calcWidth(name, 1);
-		bitmap.drawText((bitmap.WIDTH - len) >> 1, y, tahoma_8pt, name, 1);
+		int len = tahoma_8pt.calcWidth(text, 1);
+		this->bitmap.drawText((bitmap.WIDTH - len) >> 1, y, tahoma_8pt, text, 1);
 		return;
 	}
 
@@ -145,18 +77,15 @@ void System::updateMenu() {
 	case IDLE:
 		{
 			// get current clock time
-			uint32_t time = clock.getTime();
-			
-			// get index of weekday
-			int seconds = time & Clock::SECONDS_MASK;
-			int minutes = (time & Clock::MINUTES_MASK) >> Clock::MINUTES_SHIFT;
-			int hours = (time & Clock::HOURS_MASK) >> Clock::HOURS_SHIFT;
-			int weekday = (time & Clock::WEEKDAY_MASK) >> Clock::WEEKDAY_SHIFT;
-			
+			ClockTime time = getClockTime();
+						
 			// display weekday and clock time
-			this->buffer = weekdays[weekday] , "  " , bcd(hours) , ':' , bcd(minutes, 2) , ':' , bcd(seconds, 2);
+			this->buffer << weekdays[time.getWeekday()] << "  "
+				<< decimal(time.getHours()) << ':'
+				<< decimal(time.getMinutes(), 2) << ':'
+				<< decimal(time.getSeconds(), 2);
 			bitmap.drawText(20, 10, tahoma_8pt, this->buffer, 1);
-			
+/*
 			// update target temperature
 			int targetTemperature = this->targetTemperature = clamp(this->targetTemperature + delta, 10 << 1, 30 << 1);
 			this->temperature.setTargetValue(targetTemperature);
@@ -168,7 +97,7 @@ void System::updateMenu() {
 			bitmap.drawText(20, 30, tahoma_8pt, this->buffer, 1);
 			this->buffer = decimal(targetTemperature >> 1), (targetTemperature & 1) ? ".5" : ".0" , " oC";
 			bitmap.drawText(70, 30, tahoma_8pt, this->buffer, 1);
-		
+*/
 			if (activated) {
 				this->activated = true;
 				this->stack[0] = {MAIN, 0, 0, 0};
@@ -190,7 +119,7 @@ void System::updateMenu() {
 			this->state = IDLE;
 		}
 		break;
-
+/*
 	case EVENTS:
 		{
 			menu(delta, activated);
@@ -688,373 +617,17 @@ void System::updateMenu() {
 				pop();
 		}
 		break;
+*/
 	}
 	this->buffer.clear();
 }
-	
-void System::onEvent(uint32_t input, uint8_t state) {
-	switch (this->state) {
-	case IDLE:
-		// do first action of switch with given input/state
-		for (const Event &event : this->events) {
-			if (event.input == input && event.value == state) {
-				doFirstActionAndToast(event.actions);
-			}
-		}
-		break;
-	case EVENTS:
-		if (input != INPUT_MOTION_DETECTOR) {
-			// check if switch already exists and enter edit menu
-			int index = 0;
-			for (const Event &event : this->events) {
-				if (event.input == input && event.value == state) {
-					this->selected = index;
-					this->u.event = event;
-					this->actions = &u.event.actions;
-					push(EDIT_EVENT);
-					this->activated = true;
-					break;
-				}
-				++index;
-			}
-		}
-		break;
-	case EDIT_EVENT:
-	case ADD_EVENT:
-		// set input/state of switch if it is currently edited
-		if (isEditEntry(0) && this->u.event.input != INPUT_MOTION_DETECTOR) {
-			this->u.event.input = input;
-			this->u.event.value = state;
-		}
-		break;
-	case EDIT_DEVICE:
-	case ADD_DEVICE:
-		// set output of device if it is currently edited
-		if (isEditEntry(3)) {
-			this->u.device.output = input;
-		}
-		break;
-	default:
-		;
-	}
-}
 
 
-// actions
-// -------
 
-Action System::doFirstAction(const Actions &actions) {
-	int count = actions.size();
-	for (int i = 0; i < count; ++i) {
-		Action action = actions.actions[i];
-		if (action.state != Action::SCENARIO) {
-			// device
-			for (int j = 0; j < this->devices.size(); ++j) {
-				const Device &device = this->devices[j];
-				if (device.id == action.id) {
-					DeviceState &deviceState = this->deviceStates[j];
-					if (action.state < Action::TRANSITION_START) {
-						// set state
-						if (!deviceState.isActive(device, action.state)) {
-							deviceState.setState(device, action.state);
-						
-							// return action that was done
-							return action;
-						}
-					} else {
-						// do transition
-						int transitionIndex = action.state - Action::TRANSITION_START;
-						Device::Transition transition = device.getTransitions()[transitionIndex];
-						if (deviceState.isActive(device, transition.fromState)) {
-							deviceState.setState(device, transition.toState);
-							
-							// return action that was done
-							return action;
-						}
-					}
-				}
-			}
-		} else {
-			// scenario
-			for (const Scenario &scenario : this->scenarios) {
-				// do all actions of scenario
-				if (scenario.id == action.id) {
-					if (doAllActions(scenario.actions)) {
-						// return action that was done
-						return action;
-					}
-				}
-			}
-		}
-	}
-	return {0xff, 0xff};
-}
+// Menu System
+// -----------
 
-void System::doFirstActionAndToast(const Actions &actions) {
-	Action action = doFirstAction(actions);
-	setAction(action);
-	toast();
-}
-
-bool System::doAllActions(const Actions &actions) {
-	int count = actions.size();
-
-	// fail if at least one action can't be done
-	// test if at least one action has an effect
-	bool effect = false;
-	for (int i = 0; i < count; ++i) {
-		Action action = actions[i];
-		if (action.state != Action::SCENARIO) {
-			// device
-			for (int j = 0; j < this->devices.size(); ++j) {
-				const Device &device = this->devices[j];
-				if (device.id == action.id) {
-					DeviceState &deviceState = this->deviceStates[j];
-					if (action.state < Action::TRANSITION_START) {
-						// set state
-						if (!deviceState.isActive(device, action.state)) {
-							// state change has effect
-							effect = true;
-						}
-					} else {
-						// do transition
-						int transitionIndex = action.state - Action::TRANSITION_START;
-						Device::Transition transition = device.getTransitions()[transitionIndex];
-						if (deviceState.isActive(device, transition.fromState)) {
-							// can do transition
-							effect = true;
-						} else if (!deviceState.isActive(device, transition.toState)) {
-							// not in target state and can't do transition, therefore fail
-							return false;
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// fail if no action has an effect
-	if (!effect)
-		return false;
-
-	// do all actions
-	for (int i = 0; i < count; ++i) {
-		Action action = actions[i];
-		if (action.state != Action::SCENARIO) {
-			// device
-			for (int j = 0; j < this->devices.size(); ++j) {
-				const Device &device = this->devices[j];
-				if (device.id == action.id) {
-					DeviceState &deviceState = this->deviceStates[j];
-					if (action.state < Action::TRANSITION_START) {
-						// set state
-						deviceState.setState(device, action.state);
-					} else {
-						// do transition
-						int transitionIndex = action.state - Action::TRANSITION_START;
-						Device::Transition transition = device.getTransitions()[transitionIndex];
-						if (deviceState.isActive(device, transition.fromState))
-							deviceState.setState(device, transition.toState);
-					}
-				}
-			}
-		}
-	}
-	
-	// indicate success
-	return true;
-}
-
-// set temp string with action (device/state, device/transition or scenario)
-void System::setAction(Action action) {
-	this->buffer.clear();
-	if (action.state != Action::SCENARIO) {
-		// device
-		for (const Device &device : this->devices) {
-			if (device.id == action.id) {
-				this->buffer += device.name, ' ';
-				if (action.state < Action::TRANSITION_START) {
-					this->buffer += device.getStateName(action.state);
-				} else {
-					auto transition = device.getTransitions()[action.state - Action::TRANSITION_START];
-					this->buffer += device.getStateName(transition.fromState), " -> ",
-						device.getStateName(transition.toState);
-				}
-			}
-		}
-	} else {
-		// scenario
-		for (const Scenario &scenario : scenarios) {
-			if (scenario.id == action.id)
-				this->buffer = scenario.name;
-		}
-	}
-}
-
-void System::listActions() {
-	line();
-
-	int actionCount = this->actions->size();
-	for (int i = 0; i < actionCount; ++i) {
-		setAction((*this->actions)[i]);
-		if (entry(this->buffer)) {
-			//int scenarioIndex = this->button.scenarios[this->selected];
-			push(SELECT_ACTION);
-			this->selected = 0;//scenarioIndex;
-
-			// store current action index
-			this->actionIndex = i;
-		}
-	}
-	if (actionCount < Actions::ACTION_COUNT && this->storage.hasSpace(0, sizeof(Action)))
-		if (entry("Add Action")) {
-			// add action
-			push(ADD_ACTION);
-			this->selected = 0;//scenarioCount == 0 ? 0 : this->button.scenarios[scenarioCount - 1];
-			
-			// store current action index
-			this->actionIndex = actionCount;
-		}
-	line();
-}
-
-// set temp string with condition (device/state)
-void System::setConstraint(Action action) {
-	this->buffer = '\t';
-	for (const Device &device : this->devices) {
-		if (device.id == action.id) {
-			this->buffer += device.name, ' ';
-			this->buffer += device.getStateName(action.state);
-		}
-	}
-}
-
-
-// scenarios
-// ---------
-/*
-const Scenario *System::findScenario(uint8_t id) {
-	for (int i = 0; i < scenarios.size(); ++i) {
-		const Scenario &scenario = scenarios[i];
-		if (scenario.id == id)
-			return &scenario;
-	}
-	return nullptr;
-}
-*/
-uint8_t System::newScenarioId() {
-	return newId(this->scenarios);
-}
-
-void System::deleteScenarioId(uint8_t id) {
-	deleteScenarioId(this->events, id);
-	deleteScenarioId(this->timers, id);
-}
-
-
-// devices
-// -------
-
-bool System::isDeviceStateActive(uint8_t id, uint8_t state) {
-	int deviceCount = this->devices.size();
-	for (int i = 0; i < deviceCount; ++i) {
-		const Device &device = this->devices[i];
-		if (device.id == id)
-			return this->deviceStates[i].isActive(device, state);
-	}
-	return false;
-}
-
-void System::applyConditions(const Device &device, DeviceState &deviceState) {
-	int conditionCount = device.actions.size();
-	uint8_t state = 0;
-	bool active = false;
-	if (conditionCount > 0 && device.actions[0].id != device.id) {
-		// use default state if conditions don't start with a state of this device
-		state = device.getActionStates()[0].state;
-		active = true;
-	}
-	for (int i = 0; i < conditionCount; ++i) {
-		Action condition = device.actions[i];
-		
-		// check if entry is a state of this device or a condition
-		if (condition.id == device.id) {
-			// next state: check if current condition is active
-			if (active) {
-				if (deviceState.condition != state) {
-					deviceState.setState(device, state);
-					deviceState.condition = state;
-				}
-				return;
-			}
-			state = condition.state;
-			active = true;
-		} else {
-			// check if all device states of the current condition are active
-			active &= isDeviceStateActive(condition.id, condition.state);
-		}
-	}
-	if (active) {
-		if (deviceState.condition != state) {
-			deviceState.setState(device, state);
-			deviceState.condition = state;
-		}
-	} else {
-		deviceState.condition = 0xff;
-	}
-}
-
-void System::addDeviceStateToString(const Device &device, DeviceState &deviceState) {
-	Array<Device::State> states = device.getStates();
-	
-	if (deviceState.mode & DeviceState::TRANSITION) {
-		for (const Device::State &state : states) {
-			if (state.state == deviceState.lastState) {
-				this->buffer += string(state.name);
-				goto found1;
-			}
-		}
-		this->buffer += decimal(deviceState.lastState);
-	found1:
-		this->buffer += " -> ";
-	}
-	for (const Device::State &state : states) {
-		if (state.state == deviceState.state) {
-			this->buffer += string(state.name);
-			return;
-		}
-	}
-	this->buffer += decimal(deviceState.state);
-/*
-	for (int i = 0; i < states.length; ++i) {
-		auto &state = states[i];
-		if (deviceState.isActive(device, state.state)) {
-			if (state.state == Device::VALUE)
-				this->buffer += deviceState.state;
-			else
-				this->buffer += string(state.name);
-			break;
-		}
-	}
-*/
-}
-	
-uint8_t System::newDeviceId() {
-	return newId(this->devices);
-}
-
-void System::deleteDeviceId(uint8_t id) {
-	deleteDeviceId(this->events, id);
-	deleteDeviceId(this->timers, id);
-	deleteDeviceId(this->scenarios, id);
-	deleteDeviceId(this->devices, id);
-}
-
-
-// menu
-// ----
-
-void System::menu(int delta, bool activated) {
+void RoomControl::menu(int delta, bool activated) {
 	// update selected according to delta motion of poti
 	if (this->edit == 0) {
 		this->selected += delta;
@@ -1084,24 +657,24 @@ void System::menu(int delta, bool activated) {
 	this->entryY = 0;
 }
 	
-void System::label(const char* s) {
+void RoomControl::label(const char* s) {
 	int x = 10;
 	int y = this->entryY + 2 - this->yOffset;
 	this->bitmap.drawText(x, y, tahoma_8pt, s, 1);
 	this->entryY += tahoma_8pt.height + 4;
 }
 
-void System::line() {
+void RoomControl::line() {
 	int x = 10;
 	int y = this->entryY + 2 - this->yOffset;
 	this->bitmap.fillRectangle(x, y, 108, 1);
 	this->entryY += 1 + 4;
 }
 
-bool System::entry(const char* s, bool underline, int begin, int end) {
+bool RoomControl::entry(String s, bool underline, int begin, int end) {
 	int x = 10;
 	int y = this->entryY + 2 - this->yOffset;//this->entryIndex * lineHeight + 2 - this->yOffset;
-	this->bitmap.drawText(x, y, tahoma_8pt, s, 1);
+	this->bitmap.drawText(x, y, tahoma_8pt, s);
 	
 	bool selected = this->entryIndex == this->selected;
 	if (selected) {
@@ -1110,8 +683,8 @@ bool System::entry(const char* s, bool underline, int begin, int end) {
 	}
 	
 	if (underline) {
-		int start = tahoma_8pt.calcWidth(s, begin, 1);
-		int width = tahoma_8pt.calcWidth(s + begin, end - begin, 1) - 1;
+		int start = tahoma_8pt.calcWidth(s.substring(0, begin));
+		int width = tahoma_8pt.calcWidth(s.substring(begin, end)) - 1;
 		this->bitmap.hLine(x + start, y + tahoma_8pt.height, width);
 	}
 
@@ -1121,7 +694,7 @@ bool System::entry(const char* s, bool underline, int begin, int end) {
 	return selected && this->activated;
 }
 
-bool System::entryWeekdays(const char* s, int weekdays, bool underline, int index) {
+bool RoomControl::entryWeekdays(const char* s, int weekdays, bool underline, int index) {
 	int x = 10;
 	int y = this->entryY + 2 - this->yOffset;
 
@@ -1159,7 +732,7 @@ bool System::entryWeekdays(const char* s, int weekdays, bool underline, int inde
 	return selected && this->activated;
 }
 
-bool System::isEdit(int editCount) {
+bool RoomControl::isEdit(int editCount) {
 	if (this->selected == this->entryIndex) {
 		// cycle edit mode if activated
 		if (this->activated) {
@@ -1171,12 +744,12 @@ bool System::isEdit(int editCount) {
 	return false;
 }
 
-void System::push(State state) {
+void RoomControl::push(State state) {
 	this->stack[this->stackIndex] = {this->state, this->selected, this->selectedY, this->yOffset};
 	++this->stackIndex;
 	this->stack[this->stackIndex] = {state, 0, 0, 0};
 }
 
-void System::pop() {
+void RoomControl::pop() {
 	--this->stackIndex;
 }
