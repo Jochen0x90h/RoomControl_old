@@ -15,5 +15,8 @@ libopencm3/
 CMakeLists.txt.user
 
 # KiCad
+*.net
 *.gbr
 *.drl
+*-bak
+fp-info-cache
