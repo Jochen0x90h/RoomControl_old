@@ -20,7 +20,7 @@ axisCutoutZ = axisZ - 2.5;
 
 bodyWidth = 40;
 bodyHeight = 33.4;
-bodyZ1 = pcbZ1 + 4.2;//axisZ - 2.5;
+bodyZ1 = pcbZ1 + 4.0; // length of through-hole wires 
 bodyZ2 = axisZ + axisD / 2;
 
 // switch actuator
@@ -37,51 +37,72 @@ switchY = 10;
 switchZ2 = actuatorZ - 1 - 1;
 switchZ1 = switchZ2 - 5;
 switchZ0 = switchZ1 - 1.5;
-switchesY1 = switchY + switchWidth / 2;
-switchesY2 = switchesY1 + 0;
+switchesX2 = switchX + switchHeight / 2;
+switchesWidth = switchesX2 * 2;
+switchesY2 = switchY + switchWidth / 2;
 
-carrierY1 = 4;
-carrierY2 = switchY - switchWidth / 2;
+// middle carrier
+carrierWidth = 48;
+carrierHeight = (switchY - switchWidth / 2) * 2;
+carrierZ1 = pcbZ2;
+carrierZ2 = bodyZ1 + 1;
+
+// top above switches
+topWidth = switchesWidth;
+topHeight = switchWidth + 2;
+topY = switchY;
+topY1 = switchY - topHeight/2;
+topY2 = switchY + topHeight/2;
 
 screwX = 20.5;
-screwY = 8.5;
-screwD = 2.4;
-screwMountSize = 6; // overall clearance is 6x6mm
+screwY = 6.6;
+screwD = 2.5;
+screwMountSize = 5.8; // overall clearance is 6x6mm
 
-catwalkHeight = carrierY1 + 1;
-catwalkY = catwalkHeight / 2;
+// actuation angle
+angle = 5.4; // maximum actuation angle
+tanAngle = tan(angle);
 
-// lever
-leverX1 = 0.1 + switchHeight + minGap;
+// actuator bar (front)
+barWidth = axisX2 - minWall - minGap;
+barX = barWidth / 2;
+barY1 = 34.4 / 2;
+barY2 = 40 / 2;
+barY = (barY1 + barY2) / 2;
+barZ2 = baseZ2 + 6.9;
+barZ1 = barZ2 - 2; // thickness of bar
+barHeight = barY2 - barY1;
+barTravel = barY * tanAngle;
+
+// lever (left / right)
+leverX1 = switchesX2 + 1; // 1mm left/right tolerance
 leverX2 = axisX2 - minWall - minGap;
 leverX = (leverX1 + leverX2) / 2;
 leverY1 = minGap / 2;
-leverY2 = 33.3 / 2;
+leverY2 = topY2 + minGap;// 33.3 / 2;
 leverY = (leverY1 + leverY2) / 2;
 leverZ1 = pcbZ1 + 4 + 1;
 leverZ2 = bodyZ2;
 leverZ = (leverZ1 + leverZ2) / 2;
 leverWidth = leverX2 - leverX1;
 leverHeight = leverY2 - leverY1;
-leverAngle = 5.4; // maximum actuation angle
-tanAngle = tan(leverAngle);
 
-// lever bar
-barX = leverX2 / 2;
-barY1 = 34.4 / 2;
-barY2 = 40 / 2;
-barY = (barY1 + barY2) / 2;
-barZ2 = baseZ2 + 6.9;
-barZ1 = barZ2 - 2; // thickness of bar
-barWidth = leverX2;
-barHeight = barY2 - barY1;
-barTravel = barY * tanAngle;
+// lever front
+front1Y1 = topY2 + minGap;
+front1Y2 = barY1 - minGap;
+front1Y = (front1Y1 + front1Y2) / 2;
+front1Height = front1Y2 - front1Y1;
+front2Y1 = topY2 + minGap;
+front2Y2 = 33.3 / 2;
+front2Y = (front2Y1 + front2Y2) / 2;
+front2Height = front2Y2 - front2Y1;
+
 
 // mount
 mount1X1 = 22.5;
 mount1X2 = 24;
 mount1X = (mount1X1 + mount1X2) / 2;
-mount1Y1 = carrierY1;
+mount1Y1 = 0;
 mount1Y2 = 18.2;
 mount1Y = (mount1Y1 + mount1Y2) / 2;
 mount1Width = (mount1X2 - mount1X1);
@@ -95,7 +116,8 @@ mount2Y = (mount2Y1 + mount2Y2) / 2;
 mount2Width = (mount2X2 - mount2X1);
 mount2Height = (mount2Y2 - mount2Y1);
 mountZ1 = pcbZ2 + 2; // thickness of frame
-mountZ2 = bodyZ2 - 24*tanAngle;
+mountZ2 = bodyZ2 - mount2Y2 * tanAngle;
+mountZ3 = bodyZ2 - mount1Y2 * tanAngle;
 mountDiag = 58.1;
 
 
@@ -229,6 +251,87 @@ module slopeY(x, y, w, h, z1, z2, z3, z4, tb=1) {
 	}
 }
 
+module drill(x, y, d) {
+	h1 = 2;
+	w1 = h1 + 2;
+	h2 = d + 0.1;
+	w2 = h2 + 2;
+	frustum(x, y, w1, h1, w2, h2, pcbZ2-0.1, pcbZ2+1.5);
+	box(x, y, w2, h2, pcbZ2, bodyZ1);
+}
+
+module drills() {
+	drill(1.6, 2.54, 1);
+	drill(1.6, -2.54, 1);
+	drill(6.68, 2.54, 1);
+	drill(6.68, -2.54, 1);
+	drill(9.22, 2.54, 1);
+	drill(9.22, -2.54, 1);
+	drill(11.76, 2.54, 1);
+	drill(11.76, -2.54, 1);
+	drill(-11.76, 2.54, 1);
+	drill(-11.76, -2.54, 1);
+	drill(-9.22, 2.54, 1);
+	drill(-9.22, -2.54, 1);
+	drill(-6.68, 2.54, 1);
+	drill(-6.68, -2.54, 1);
+	drill(-1.6, 2.54, 1);
+	drill(-1.6, -2.54, 1);
+	drill(17.46, 0, 1);
+	drill(17.46, -2.54, 1);
+	drill(17.46, -5.08, 1);
+	drill(17.46, -10.16, 1);
+	drill(22.54, 0, 1);
+	drill(22.54, -2.54, 1);
+	drill(22.54, -5.08, 1);
+	drill(22.54, -10.16, 1);
+	drill(-22.54, 0, 1);
+	drill(-22.54, -2.54, 1);
+	drill(-22.54, -5.08, 1);
+	drill(-22.54, -10.16, 1);
+	drill(-17.46, 0, 1);
+	drill(-17.46, -2.54, 1);
+	drill(-17.46, -5.08, 1);
+	drill(-17.46, -10.16, 1);
+	drill(9.24, -25.5, 1);
+	drill(11.78, -25.5, 1);
+	drill(14.32, -25.5, 1);
+	drill(16.86, -25.5, 1);
+	drill(19.4, -25.5, 1);
+	drill(1.32, 10, 1.1);
+	drill(6.4, 10, 1.1);
+	drill(11.48, 10, 1.1);
+	drill(-5, -16, 1.1);
+	drill(-5, -21, 1.1);
+	drill(0, -16, 1.1);
+	drill(0, -21, 1.1);
+	drill(5, -16, 1.1);
+	drill(5, -21, 1.1);
+	drill(-14.85, 21, 1.1);
+	drill(-14.85, 16, 1.1);
+	drill(-9.85, 21, 1.1);
+	drill(-9.85, 16, 1.1);
+	drill(-4.85, 21, 1.1);
+	drill(-4.85, 16, 1.1);
+	drill(0.15, 21, 1.1);
+	drill(0.15, 16, 1.1);
+	drill(5.15, 21, 1.1);
+	drill(5.15, 16, 1.1);
+	drill(10.15, 21, 1.1);
+	drill(10.15, 16, 1.1);
+	drill(15.15, 21, 1.1);
+	drill(15.15, 16, 1.1);
+	drill(1.32, -10, 1.1);
+	drill(6.4, -10, 1.1);
+	drill(11.48, -10, 1.1);
+	drill(-11.48, -10, 1.1);
+	drill(-6.4, -10, 1.1);
+	drill(-1.32, -10, 1.1);
+	drill(-11.48, 10, 1.1);
+	drill(-6.4, 10, 1.1);
+	drill(-1.32, 10, 1.1);
+}
+
 module switchSpikes(x, y, angle) {
 	translate([x, y, 0]) {
 		rotate([0, 0, angle]) {
@@ -242,19 +345,12 @@ module switchSpikes(x, y, angle) {
 
 module catwalk(x, w) {
 	for (tb = [1, -1]) {
-		slopeY(x, catwalkY*tb,
-			w, catwalkHeight,
-			leverZ1, leverZ1,
-			bodyZ2, bodyZ2-catwalkHeight*tanAngle,
+		slopeY(x, carrierHeight/4*tb,
+			w, carrierHeight/2,
+			bodyZ1, bodyZ1,
+			bodyZ2, bodyZ2-carrierHeight/2*tanAngle,
 			tb);
 	}
-
-	// support down to pcb surface (needed for lever)
-	frustum(x, 0,
-		w, 1+minGap+1,
-		w, 2+minGap+2,
-		pcbZ2,
-		leverZ1);
 }
 
 module body() {
@@ -265,13 +361,10 @@ module body() {
 	// catwalks
 	leftCatwalkWidth = 2;
 	leftCatwalkX = axisX1 + leftCatwalkWidth / 2;
-	middleCatwalkWidth = 1;
+	middleCatwalkWidth = 2;
 	middleCatwalkX = leverX1 - minGap - middleCatwalkWidth / 2;
 	rightCatwalkWidth = bodyWidth / 2 - axisX2 + minWall;
 	rightCatwalkX = bodyWidth / 2  - rightCatwalkWidth / 2;
-
-	// middle axis
-	axis(0, 0, axisD, middleCatwalkX*2, axisZ);
 
 	// actuator
 	for (rl = [1, -1]) {
@@ -280,85 +373,83 @@ module body() {
 			actuatorZ-1, actuatorZ);
 	}
 	
-	// carrier
+	// switch top
 	difference() {
 		union() {
-			// upper carrier
-			slopeY(0, (carrierY1+carrierY2)/2,
-				48, carrierY2-carrierY1,
-				pcbZ2, pcbZ2,
-				bodyZ2-tanAngle*carrierY1, bodyZ2-tanAngle*carrierY2);
-			slopeY(0, carrierY1-0.5,
-				48, 1,
-				leverZ1, pcbZ2,
-				leverZ1+1, leverZ1+1);
+			for (tb = [1, -1]) {
+				// switch top
+				slopeY(0, topY*tb,
+					topWidth, topHeight,
+					switchZ2, switchZ2,
+					bodyZ2-tanAngle*topY1, bodyZ2-tanAngle*topY2,
+					tb);
+
+				// switch holder
+				box(0, (topY2-0.5)*tb,
+					topWidth, 1,
+					switchZ1, bodyZ2-tanAngle*topY2);
+			}
+		}
+		
+		// right / left
+		for (rl = [1, -1]) {
+			// cutaway space for actuator
+			box(actuatorX*rl, 0,
+				actuatorWidth+minGap, switchesY2*2,//(actuatorY+1+minGap)*2,
+				switchZ2-0.1, bodyZ2);
+		}
+	}
+	
+	// carrier, axis and screw mount blocks
+	difference() {
+		// additive components
+		union() {
+			// axis
+			axis(0, 0, axisD, carrierWidth, axisZ);
 			
-			// lower carrier
-			slopeY(0, -(carrierY1+carrierY2)/2,
-				48, carrierY2-carrierY1,
-				pcbZ2, pcbZ2,
-				bodyZ2-tanAngle*carrierY2, bodyZ2-tanAngle*carrierY1);
-			slopeY(0, -(carrierY1-0.5),
-				48, 1,
-				pcbZ2, leverZ1,
-				leverZ1+1, leverZ1+1);			
-
-			// upper switch top
-			slopeY(0, (carrierY1+switchesY2)/2,
-				switchesWidth, switchesY2-carrierY1,
-				switchZ2, switchZ2,
-				bodyZ2-tanAngle*carrierY1, bodyZ2-tanAngle*switchesY2);
-
-			// lower switch top
-			slopeY(0, -(carrierY1+switchesY2)/2,
-				switchesWidth, switchesY2-carrierY1,
-				switchZ2, switchZ2,
-				bodyZ2-tanAngle*switchesY2, bodyZ2-tanAngle*carrierY1);
+			// carrier
+			box(0, 0, carrierWidth, carrierHeight, carrierZ1, carrierZ2);
+			
+			for (rl = [1, -1]) {			
+				// left catwalk
+				catwalk(leftCatwalkX*rl, leftCatwalkWidth);
 				
-			// screw mount blocks
-			for (rl = [1, -1])
+				// middle catwalk
+				catwalk(middleCatwalkX*rl, middleCatwalkWidth);		
+				
+				// right catwalk with axis cutout
+				difference() {
+					catwalk(rightCatwalkX*rl, rightCatwalkWidth);
+					box((axisX2+1)*rl, 0, 2, axisCoutoutWidth, axisCutoutZ, bodyZ2);
+				}
+
+				// screw mount block
 				slopeY(screwX*rl, screwY,
 					screwMountSize, screwMountSize,
 					pcbZ2, pcbZ2,
 					bodyZ2-(screwY-3)*tanAngle, bodyZ2-(screwY+3)*tanAngle);
+			}
 		}
 		
+		// right / left
 		for (rl = [1, -1]) {
-		
-			// cutaway space for actuator
-			box(actuatorX*rl, 0,
-				actuatorWidth+minGap, switchesY1*2,//(actuatorY+1+minGap)*2,
-				switchZ2-0.1, bodyZ2);
-			
+					
 			// cut away space for lever
 			box(leverX*rl, 0,
 				leverWidth+2*minGap, leverHeight,
-				leverZ1-max(minGap, carrierY2*tanAngle+0.1), leverZ2);			
+				leverZ1-max(minGap, carrierHeight/2*tanAngle+0.1), leverZ2+1);
 		
+			// cut away mount for lever
+			box(leverX*rl, 0,
+				leverWidth+2*minGap, minGap+1+minGap+1+minGap,
+				pcbZ2+1.5, leverZ2);			
+			
 			// hole for screw
-			barrel(screwX*rl, screwY, screwD/2, pcbZ1, bodyZ2);			
+			barrel(screwX*rl, screwY, screwD/2, pcbZ1, bodyZ2);
 		}
 	}
-	
-	
-	// right/left
-	for (rl = [1, -1]) {
 
-		// left catwalk
-		catwalk(leftCatwalkX*rl, leftCatwalkWidth);
-		
-		// middle catwalk
-		catwalk(middleCatwalkX*rl, middleCatwalkWidth);		
-		
-		// right catwalk with axis cutout
-		difference() {
-			catwalk(rightCatwalkX*rl, rightCatwalkWidth);
-			box((axisX2+1)*rl, 0, 2, axisCoutoutWidth, axisCutoutZ, bodyZ2);
-		}
 	
-		// right axis
-		axis(rightCatwalkX*rl, 0, axisD, rightCatwalkWidth, axisZ);
-	}
 	
 	// spies for switch holes
 	//switchSpikes(switchX, -switchY+2, -90);
@@ -370,16 +461,17 @@ module body() {
 
 module lever(rl, angle) {
 
-	// connection to carrier
-	box(leverX*rl, 0, leverWidth+3, 1+minGap+1, pcbZ2, pcbZ2+2);	
-
 	// top/bottom
 	for (tb = [1, -1]) {
+		// connection to carrier
 		box(leverX*rl, (minGap/2+0.5)*tb,
 			leverWidth, 1, pcbZ2, leverZ2);
+		
+		// rotatable part
 		translate([0, 0, axisZ]) {
 			rotate([angle, 0, 0]) {
 				translate([0, 0, -axisZ]) {
+					// lever left/right
 					difference() {
 						box(leverX*rl, leverY*tb,
 							leverWidth, leverHeight, leverZ1, leverZ2);
@@ -390,15 +482,21 @@ module lever(rl, angle) {
 						box(leverX*rl, (leverY1+1+0.5)*tb,
 							leverWidth+1, 1, 0, leverZ2-2);
 					}
-					
-					// bar (2mm more height)
-					box(barX*rl, (barY-1)*tb,
-						barWidth, barHeight+2,
+
+					// lever front
+					slopeY(barX*rl, front1Y*tb,
+						barWidth, front1Height,
+						leverZ1, leverZ1+0.8, // avoid thru-hole wires
+						barZ2, barZ2,
+						tb);
+					box(barX*rl, front2Y*tb,
+						barWidth, front2Height,
+						barZ2, leverZ2);
+
+					// bar (increase height to connect to lever)
+					box(barX*rl, (barY-0.5)*tb,
+						barWidth, barHeight+1,
 						barZ1, barZ2);
-					
-					box(barX*rl, (leverY2-1)*tb,
-						barWidth, 2,
-						leverZ1, leverZ2);
 
 					// spring upper block
 					box(barHeight/2*rl, barY*tb,
@@ -433,8 +531,14 @@ module mount() {
 	for (tb = [1, -1]) {
 		// right/left
 		for (rl = [1, -1]) {
-			box(mount1X*rl, mount1Y*tb, mount1Width, mount1Height, pcbZ2, mountZ2);
-			box(mount2X*rl, mount2Y*tb, mount2Width, mount2Height, pcbZ2, mountZ2);
+			slopeY(mount1X*rl, mount1Y*tb,
+				mount1Width, mount1Height,
+				pcbZ2, pcbZ2,
+				bodyZ2, mountZ3, tb);
+			
+			box(mount2X*rl, mount2Y*tb,
+				mount2Width, mount2Height,
+				pcbZ2, mountZ2);			
 		}
 	}
 	
@@ -511,10 +615,18 @@ module actuators(angle) {
 	}
 }
 
-body();
-lever(1, leverAngle);
-lever(-1, 0);
-mount();
+difference() {
+	union() {
+		body();
+		lever(1, 0);
+		lever(-1, 0);
+		mount();
+	}
+		
+	// holes for pcb drills
+	drills();
+}
+
 
 //switch(switchX, -switchY, -90);
 //switch(switchX, switchY, -90);

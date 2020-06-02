@@ -1,4 +1,4 @@
-update=2020 May 28, Thursday 16:45:22
+update=2020 May 30, Saturday 21:39:30
 version=1
 last_client=kicad
 [general]
@@ -251,19 +251,8 @@ dPairWidth=0.2
 dPairGap=0.25
 dPairViaGap=0.25
 [pcbnew/Netclasses/1]
-Name=HiVolt
-Clearance=1.1
-TrackWidth=0.25
-ViaDiameter=0.8
-ViaDrill=0.4
-uViaDiameter=0.3
-uViaDrill=0.1
-dPairWidth=0.2
-dPairGap=0.25
-dPairViaGap=0.25
-[pcbnew/Netclasses/2]
-Name=PE
-Clearance=0.5
+Name=Mains
+Clearance=1
 TrackWidth=0.25
 ViaDiameter=0.8
 ViaDrill=0.4
