@@ -1,4 +1,4 @@
-update=2020 May 15, Friday 20:54:21
+update=2020 June 15, Monday 20:34:07
 version=1
 last_client=kicad
 [general]
@@ -72,7 +72,7 @@ OthersTextUpright=1
 SolderMaskClearance=0.051
 SolderMaskMinWidth=0.25
 SolderPasteClearance=0
-SolderPasteRatio=0
+SolderPasteRatio=-0
 [pcbnew/Layer.F.Cu]
 Name=F.Cu
 Type=0
@@ -252,19 +252,8 @@ dPairWidth=0.2
 dPairGap=0.25
 dPairViaGap=0.25
 [pcbnew/Netclasses/1]
-Name=HiVolt
+Name=Mains
 Clearance=1
-TrackWidth=0.25
-ViaDiameter=0.8
-ViaDrill=0.4
-uViaDiameter=0.3
-uViaDrill=0.1
-dPairWidth=0.2
-dPairGap=0.25
-dPairViaGap=0.25
-[pcbnew/Netclasses/2]
-Name=PE
-Clearance=0.5
 TrackWidth=0.25
 ViaDiameter=0.8
 ViaDrill=0.4

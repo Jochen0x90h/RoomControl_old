@@ -1,3 +1,4 @@
 (sym_lib_table
   (lib (name RoomControl)(type Legacy)(uri ${KIPRJMOD}/../RoomControl.lib)(options "")(descr ""))
+  (lib (name main-rescue)(type Legacy)(uri ${KIPRJMOD}/main-rescue.lib)(options "")(descr ""))
 )

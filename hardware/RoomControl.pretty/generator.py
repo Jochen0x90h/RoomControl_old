@@ -173,7 +173,7 @@ footer()
 
 
 # wago
-for pinCount in [3, 7, 10]:
+for pinCount in [3, 5, 6, 7]:
 	# bounding box
 	pitch = 5
 	right = 6.5

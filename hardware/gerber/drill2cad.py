@@ -54,7 +54,7 @@ def readDrill(path):
 		return holes
 
 
-holes = readDrill("main-PTH.drl") + readDrill("main-NPTH.drl")
+holes = readDrill("main-PTH.drl")# + readDrill("main-NPTH.drl")
 
 print("module drills() {")
 for size, x, y in holes:
