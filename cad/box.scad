@@ -126,10 +126,10 @@ panelZ3 = coverZ2 - 1;
 //echo(100-panelY2);
 
 // power 
-powerX1 = 7.5 - 0.3;
-powerY1 = 3.5 - 0.4;
-powerX2 = 27.5 + 0.3;
-powerY2 = 37.5 + 0.4;
+powerX1 = -12.3 - 0.4;//7.5 - 0.3;
+powerX2 = 21.7 + 0.4;//27.5 + 0.3;
+powerY1 = 17.5 - 0.3;//3.5 - 0.4;
+powerY2 = 37.5 + 0.3;//37.5 + 0.4;
 powerZ2 = pcbZ2 + 15 + 0.2;
 assert(powerZ2 <= panelZ1, "power supply intersects display");
 
@@ -491,10 +491,10 @@ color([1, 0, 0]) {
 			box(x=panelX, y=panelY1, w=panelWidth+2, h=2,
 				z1=panelZ2-2, z2=panelZ2);
 		
-			// upper display holder
-			box(panelX, panelY2-0.5,
-				10, 1,
-				pcbZ2, panelZ1);
+			// upper display holder (not needed bacause of power supply)
+			//box(panelX, panelY2-0.5,
+			//	10, 1,
+			//	pcbZ2, panelZ1);
 			
 			// lower pcb support
 			box(pcbX, pcbY1, pcbWidth, 3, pcbZ2, pcbZ2+2);

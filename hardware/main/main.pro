@@ -1,4 +1,4 @@
-update=2020 June 15, Monday 20:34:07
+update=2020 August 07, Friday 10:28:44
 version=1
 last_client=kicad
 [general]
@@ -44,8 +44,8 @@ TrackWidth3=0.5
 TrackWidth4=1
 TrackWidth5=1.4
 TrackWidth6=2
-ViaDiameter1=0.8
-ViaDrill1=0.4
+ViaDiameter1=0.7
+ViaDrill1=0.3
 dPairWidth1=0.2
 dPairGap1=0.25
 dPairViaGap1=0.25
@@ -244,8 +244,8 @@ Enabled=0
 Name=Default
 Clearance=0.2
 TrackWidth=0.25
-ViaDiameter=0.8
-ViaDrill=0.4
+ViaDiameter=0.7
+ViaDrill=0.3
 uViaDiameter=0.3
 uViaDrill=0.1
 dPairWidth=0.2

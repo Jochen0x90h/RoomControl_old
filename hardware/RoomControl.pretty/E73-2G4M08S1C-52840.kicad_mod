@@ -1,8 +1,6 @@
 (module E73-2G4M08S1C-52840 (layer F.Cu) (tedit 5EC043C1)
   (fp_text reference REF** (at 0 -10.315) (layer F.SilkS) (effects (font (size 1 1) (thickness 0.15))))
   (fp_text value E73-2G4M08S1C-52840 (at 0 -9.115) (layer F.Fab) (effects (font (size 1 1) (thickness 0.15))))
-  (solder_mask_margin 0.05)
-  (solder_paste_margin -0.05)
   (fp_line (start 6.5 7.085) (end 3.9 9.685) (width 0.1) (layer F.Fab))
   (fp_line (start 3.9 9.685) (end -6.5 9.685) (width 0.1) (layer F.Fab))
   (fp_line (start -6.5 9.685) (end -6.5 -8.315) (width 0.1) (layer F.Fab))

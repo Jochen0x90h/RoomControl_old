@@ -56,17 +56,19 @@ def readDrill(path):
 
 holes = readDrill("main-PTH.drl")# + readDrill("main-NPTH.drl")
 
+print("# main")
 print("module drills() {")
 for size, x, y in holes:
-	if size > 0.79:
+	if size > 0.49:
 		print(f"\tdrill({x-100:.5g}, {y+100:.5g}, {size:.5g});")
 print("}")
 		
 
 holes = readDrill("switch-PTH.drl")
 
+print("# switch")
 print("module drills() {")
 for size, x, y in holes:
-	if size > 0.79:
+	if size > 0.49:
 		print(f"\tdrill({x-100:.5g}, {y+100:.5g}, {size:.5g});")
 print("}")
