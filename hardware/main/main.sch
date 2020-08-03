@@ -1321,25 +1321,6 @@ Wire Wire Line
 Text Notes 9700 6100 0    50   ~ 0
 10µA, 1V
 $Comp
-L Connector_Generic:Conn_01x03 U11
-U 1 1 5EF5F588
-P 8750 4500
-F 0 "U11" H 8750 4700 50  0000 C CNN
-F 1 "D203S" V 8850 4500 50  0000 C CNN
-F 2 "RoomControl:D203S" H 8750 4500 50  0001 C CNN
-F 3 "~" H 8750 4500 50  0001 C CNN
-	1    8750 4500
-	-1   0    0    -1  
-$EndComp
-Wire Wire Line
-	8950 4400 9250 4400
-Wire Wire Line
-	8950 4500 9250 4500
-Connection ~ 9250 4500
-Wire Wire Line
-	8950 4600 9250 4600
-Connection ~ 9250 4600
-$Comp
 L Device:Battery_Cell BT1
 U 1 1 5F24E52C
 P 5250 3750
@@ -1388,7 +1369,6 @@ Wire Wire Line
 	9550 4300 9550 4400
 Wire Wire Line
 	9250 4400 9550 4400
-Connection ~ 9250 4400
 Connection ~ 9550 4400
 Text Notes 3400 3000 0    50   ~ 0
 R = (5V - 1.4V) / 15mA

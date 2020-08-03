@@ -1,4 +1,4 @@
-(module D203S (layer F.Cu) (tedit 5EA93291)
+(module D203S (layer F.Cu) (tedit 5F2EDEE2)
   (fp_text reference REF** (at 0 -6.9) (layer F.SilkS)
     (effects (font (size 1 1) (thickness 0.15)))
   )
@@ -13,4 +13,5 @@
   (pad 1 thru_hole circle (at 1.796 -1.796) (size 1.5 1.5) (drill 0.8) (layers *.Cu *.Mask))
   (pad 2 thru_hole circle (at -1.796 -1.796) (size 1.5 1.5) (drill 0.8) (layers *.Cu *.Mask))
   (pad 3 thru_hole circle (at -1.796 1.796) (size 1.5 1.5) (drill 0.8) (layers *.Cu *.Mask))
+  (pad "" np_thru_hole circle (at 0 0) (size 1.5 1.5) (drill 1.5) (layers *.Cu *.Mask))
 )

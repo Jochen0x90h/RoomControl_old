@@ -133,33 +133,15 @@ module cuboid(x1, y1, x2, y2, z1, z2) {
 		cube([x2-x1, y2-y1, z2-z1]);
 }
 
-module barrel(x, y, r, z1, z2) {
+module barrel(x, y, d, z1, z2) {
 	translate([x, y, z1])
-		cylinder(r=r, h=z2-z1);
+		cylinder(r=d/2, h=z2-z1);
 }
 
 module axis(x, y, d, l, z) {
 	translate([x-l/2, y, z])
 		rotate([0, 90, 0])
 			cylinder(r=d/2, h=l);
-
-}
-
-module cone(x, y, r1, r2, z1, z2) {
-	translate([x, y, z1])
-		cylinder(r1=r1, r2=r2, h=z2-z1);
-}
-
-module longHoleX(x, y, r, l, z1, z2) {
-	barrel(x=x-l/2, y=y, r=r, z1=z1, z2=z2);
-	barrel(x=x+l/2, y=y, r=r, z1=z1, z2=z2);
-	box(x=x, y=y, w=l, h=r*2, z1=z1, z2=z2);
-}
-
-module longHoleY(x, y, r, l, z1, z2) {
-	barrel(x=x, y=y-l/2, r=r, z1=z1, z2=z2);
-	barrel(x=x, y=y+l/2, r=r, z1=z1, z2=z2);
-	box(x=x, y=y, w=r*2, h=l, z1=z1, z2=z2);
 }
 
 module frustum(x, y, w1, h1, w2, h2, z1, z2) {
@@ -399,7 +381,7 @@ module body() {
 				switchZ2-0.1, bodyZ2);
 		}
 	}
-	
+
 	// carrier, axis and screw mount blocks
 	difference() {
 		// additive components
@@ -416,11 +398,12 @@ module body() {
 				
 				// middle catwalk
 				catwalk(middleCatwalkX*rl, middleCatwalkWidth);		
-				
+
 				// right catwalk with axis cutout
 				difference() {
 					catwalk(rightCatwalkX*rl, rightCatwalkWidth);
-					box((axisX2+1)*rl, 0, 2, axisCoutoutWidth, axisCutoutZ, bodyZ2);
+					box((axisX2+1)*rl, 0, 2, axisCoutoutWidth,
+						axisCutoutZ, bodyZ2+1);
 				}
 
 				// screw mount block
@@ -430,7 +413,7 @@ module body() {
 					bodyZ2-(screwY-3)*tanAngle, bodyZ2-(screwY+3)*tanAngle);
 			}
 		}
-		
+
 		// right / left
 		for (rl = [1, -1]) {
 					
@@ -445,13 +428,12 @@ module body() {
 				pcbZ2+1.5, leverZ2);			
 			
 			// hole for screw
-			barrel(screwX*rl, screwY, screwD/2, pcbZ1, bodyZ2);
+			barrel(screwX*rl, screwY, screwD, pcbZ1, bodyZ2);
 		}
 	}
-
 	
 	
-	// spies for switch holes
+	// spikes for switch holes
 	//switchSpikes(switchX, -switchY+2, -90);
 	//switchSpikes(switchX, switchY-2, -90);
 	//switchSpikes(-switchX, -switchY+2, 90);
@@ -577,9 +559,9 @@ module switch(x, y, angle) {
 			}
 			
 			// wires
-			//barrel(0, 0, 0.9/2, switchZ0-3.5, switchZ0);
-			barrel(0, 5.08, 0.9/2, switchZ0-3.5, switchZ0);
-			//barrel(0, -5.08, 0.9/2, switchZ0-3.5, switchZ0);
+			//barrel(0, 0, 0.9, switchZ0-3.5, switchZ0);
+			barrel(0, 5.08, 0.9, switchZ0-3.5, switchZ0);
+			//barrel(0, -5.08, 0.9, switchZ0-3.5, switchZ0);
 		}
 	}
 }
@@ -637,5 +619,5 @@ difference() {
 //actuators(-leverAngle);
 
 // screws
-//barrel(20.5, 8.5, 1.5, pcbZ1, pcbZ1+15);
-//barrel(-20.5, 8.5, 1, pcbZ1, pcbZ1+10);
+//barrel(20.5, 8.5, 3, pcbZ1, pcbZ1+15);
+//barrel(-20.5, 8.5, 2, pcbZ1, pcbZ1+10);

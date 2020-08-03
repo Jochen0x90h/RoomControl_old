@@ -14,8 +14,9 @@ RECT = 0
 userWidth = 0.1
 userLayer = "Dwgs.User"
 
-# line width of silkscreen drawings, double width at pin 1
-silkScreenWidth = 0.1
+# line width of silkscreen drawings and distance from pads
+silkScreenWidth = 0.15
+silkScreenDistance = 0.2
 
 # set sys.stdout and output footprint header to file
 def header(name, top, maskMargin = 0, pasteMargin = 0, description = "", model = ""):
@@ -50,6 +51,10 @@ def footer():
 def line(x1, y1, x2, y2, width, layer):
 	print(f"  (fp_line (start {x1:.5g} {y1:.5g}) (end {x2:.5g} {y2:.5g}) (width {width}) (layer {layer}))")
 
+# draw a circle
+def circle(x, y, r, width, layer):
+	print(f"  (fp_circle (center {x:.5g} {y:.5g}) (end {x+r:.5g} {y:.5g}) (width {width}) (layer {layer}))")
+
 # draw a package rectangle with pin 1 marking to fabrication layer
 def fabRect(x1, y1, x2, y2):
 	d = min(abs(x2 - x1), abs(y2 - y1)) * 0.2
@@ -70,21 +75,19 @@ def courtyardRect(x1, y1, x2, y2):
 
 # draw a rectangle with pin 1 marking to silkscreen layer
 def silkScreenRect(x1, y1, x2, y2):
-	d = min(abs(x2 - x1), abs(y2 - y1)) * 0.2
-	xa = x1 + (d if x2 > x1 else -d)
-	ya = y1 + (d if y2 > y1 else -d)
-	xb = xa + (0.4 if x2 > x1 else -0.4)
-	yb = ya + (0.4 if y2 > y1 else -0.4)
+	d = 4 * silkScreenWidth
+	x = x1 + (d if x2 > x1 else -d)
+	y = y1 + (d if y2 > y1 else -d)
 	
 	# pin 1 marking
-	line(x1, y1, xa, y1, silkScreenWidth * 2, "F.SilkS")
-	line(x1, y1, x1, ya, silkScreenWidth * 2, "F.SilkS")
+	#circle(x1, y1, silkScreenWidth, silkScreenWidth * 1.5, "F.SilkS")
+	line(x1, y1, x1, y1, silkScreenWidth * 2, "F.SilkS")
 	
 	# remaining rectangle
-	line(xb, y1, x2, y1, silkScreenWidth, "F.SilkS")
+	line(x, y1, x2, y1, silkScreenWidth, "F.SilkS")
 	line(x2, y1, x2, y2, silkScreenWidth, "F.SilkS")
 	line(x2, y2, x1, y2, silkScreenWidth, "F.SilkS")
-	line(x1, y2, x1, yb, silkScreenWidth, "F.SilkS")	
+	line(x1, y2, x1, y, silkScreenWidth, "F.SilkS")	
 
 # draw a rectangle to user layer
 def userRect(x1, y1, x2, y2):
@@ -175,12 +178,13 @@ def smdDilFootprint(name, packageWidth, packageHeight, count, shape, pitchX, pit
 	courtyardLeft = -courtyardRight
 	
 	# don't print silkscreen onto pads
-	silkScreenRight = min(packageRight, rightPadsLeft - silkScreenWidth) if packageRight < rightPads \
-		else max(packageRight, rightPadsRight + silkScreenWidth) 
+	d = silkScreenDistance + silkScreenWidth / 2
+	silkScreenRight = min(packageRight, rightPadsLeft - d) if packageRight < rightPads \
+		else max(packageRight, rightPadsRight + d) 
 	if pitchX < 0:
 		silkScreenRight = -silkScreenRight
 	silkScreenLeft = -silkScreenRight
-	silkScreenBottom = max(packageBottom, padsBottom + silkScreenWidth)
+	silkScreenBottom = max(packageBottom, padsBottom + d)
 	silkScreenTop = -silkScreenBottom
 	
 	header(name, packageTop, maskMargin, pasteMargin, description, model)
