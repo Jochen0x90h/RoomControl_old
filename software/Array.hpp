@@ -1,8 +1,10 @@
 #pragma once
 
-#include <stdint.h>
 
-
+/**
+ * Array, only references the data
+ * @tparam T array element
+ */
 template <typename T>
 struct Array {
 	const T *data;
@@ -14,6 +16,8 @@ struct Array {
 	constexpr Array(const T (&array)[N]) : data(array), length(N) {}
 
 	constexpr Array(const T *data, int length) : data(data), length(length) {}
+
+	bool empty() {return this->length <= 0;}
 
 	constexpr const T &operator [](int index) const {return this->data[index];}
 

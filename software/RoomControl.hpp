@@ -1,6 +1,6 @@
 #pragma once
 
-#include "MqttSnClient.hpp"
+#include "MqttSnBroker.hpp"
 #include "Clock.hpp"
 #include "Display.hpp"
 #include "Poti.hpp"
@@ -8,31 +8,41 @@
 #include "StringBuffer.hpp"
 #include <iostream>
 
+inline std::ostream &operator << (std::ostream &s, String const &str) {
+	s << std::string(str.data, str.length);
+	return s;
+}
 
-class RoomControl : public MqttSnClient, public Clock, public Display, public Poti {
+/**
+ * Main room control class that inherits platform dependent (hardware or emulator) components
+ */
+class RoomControl : public MqttSnBroker, public Clock, public Display, public Poti {
 public:
 
-	RoomControl() {}
+	RoomControl(UpLink::Parameters const &upParameters, DownLink::Parameters downParameters)
+		: MqttSnBroker(upParameters, downParameters) {}
 
 	~RoomControl() override;
+
+
+// UpLink
+// ------
 	
+	void onUpConnected() override {
+		connect("MyClient");
+	}
+
+
 // MqttSnClient
 // ------------
 
-	void onGatewayFound(const Udp6Endpoint &system, uint8_t gatewayId) override {
-		std::cout << "onGatewayFound" << std::endl;
-		Udp6Endpoint gw;
-		gw.address = sender.address;
-		gw.scope = sender.scope;
-		gw.port = GATEWAY_PORT;
-		connect(gw, gatewayId, "MyClient");
-	}
+	uint16_t foo;
 
 	void onConnected() override {
 		std::cout << "onConnected" << std::endl;
 
 		// register a topic name to obtain a topic id
-		registerTopic("state");
+		this->foo = registerTopic("foo").topicId;
 	}
 	
 	void onDisconnected() override {
@@ -46,61 +56,48 @@ public:
 	void onWakeup() override {
 	
 	}
-			
-	void onRegister(const char* topic, uint16_t topicId) override {
+	
+	void onError(int error, mqttsn::MessageType messageType) override {
 	
 	}
-
-	void onRegistered(uint16_t packetId, uint16_t topicId) override {
-		std::cout << "onRegistered " << packetId << ' ' << topicId << std::endl;
+/*
+	void onRegistered(uint16_t msgId, String topicName, uint16_t topicId) override {
+		MqttSnBroker::onRegistered(msgId, topicName, topicId);
+		
+		std::cout << "onRegistered " << topicName << ' ' << topicId << std::endl;
 		this->stateId = topicId;
 
 		// subscribe to command topic
 		subscribeTopic("cmd");
 	}
+*/
 
-	void onPublish(uint16_t topicId, uint8_t const *data, int length, bool retained, int8_t qos) override {
+// MqttSnBroker
+// ------------
+
+	void onPublished(uint16_t topicId, uint8_t const *data, int length, int8_t qos, bool retain) override {
 		std::string s((char const*)data, length);
-		std::cout << "onPublish " << topicId << " data " << s << " retained " << retained << " qos " << int(qos) << std::endl;
+		std::cout << "onPublished " << topicId << " data " << s << " retain " << retain << " qos " << int(qos) << std::endl;
 	}
-
-	void onPublished(uint16_t packetId, uint16_t topicId) override {
-		std::cout << "onPublished " << packetId << ' ' << topicId << std::endl;
-	}
-
-	void onSubscribed(uint16_t packetId, uint16_t topicId) override {
-		std::cout << "onSubscribed " << packetId << ' ' << topicId << std::endl;
+/*
+	void onSubscribed(uint16_t msgId, String topicName, uint16_t topicId, int8_t qos) override {
+		MqttSnBroker::onSubscribed(msgId, topicName, topicId, qos);
+		
+		std::cout << "onSubscribed " << topicName << ' ' << topicId << ' ' << int(qos) << std::endl;
 		this->commandId = topicId;
 
 		// publish a message on the state topic
-		publish(this->stateId, "foo");
+		publish(this->stateId, "foo", 1);
 	}
+*/
 
-	void onUnsubscribed() override {
+	
+// SystemTimer
+// -----------
+		
+	void onSystemTimeout3(SystemTime time) override {
 	
 	}
-	
-	void onPacketError() override {
-	
-	}
-
-	void onCongestedError(MQTTSN_msgTypes messageType) override {
-	
-	}
-
-	void onUnsupportedError(MQTTSN_msgTypes messageType) override {
-	
-	}
-
-	SystemTime doNext(SystemTime time) override {
-		std::cout << "doNext" << std::endl;
-				
-		return time;
-	}
-
-
-	int stateId;
-	int commandId;
 
 
 // Clock
@@ -231,6 +228,4 @@ public:
 	
 	// temporary string buffer
 	StringBuffer<32> buffer;
-	
-	
 };

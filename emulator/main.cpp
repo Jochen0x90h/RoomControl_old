@@ -126,7 +126,9 @@ int main(int argc, const char **argv) {
 	glfwSwapInterval(1);
 
 	// the room control application
-	RoomControl roomControl;
+	UpLink::Parameters upParameters;
+	DownLink::Parameters downParameters;
+	RoomControl roomControl(upParameters, downParameters);
 		
 	// emulator user interface
 	Gui gui;

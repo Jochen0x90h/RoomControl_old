@@ -8,10 +8,6 @@ project(Emulator)
 
 #set(CMAKE_VERBOSE_MAKEFILE ON)
 
-# add packet encoder/decoder libraries (MQTTSNPacketClient and MQTTSNPacketServer)
-# https://github.com/eclipse/paho.mqtt-sn.embedded-c
-add_subdirectory(../MQTTSNPacket/src MQTTSNPacket)
-
 # use C++17 standard by default
 set(CMAKE_CXX_STANDARD 17)
 
@@ -35,21 +31,23 @@ source_group(glad FILES ${GLAD})
 
 # CLion: Software directory is in External Libraries -> Header Search Paths -> Software
 set(SOFTWARE
-	../software/String.hpp
-	../software/StringBuffer.hpp
+	../software/Array.hpp
 	../software/Bitmap.cpp
 	../software/Bitmap.hpp
 	../software/Font.cpp
 	../software/Font.hpp
-	../software/tahoma_8pt.cpp
-	../software/tahoma_8pt.hpp
 	../software/Flash.hpp
 	../software/MqttSnClient.cpp
 	../software/MqttSnClient.hpp
+	../software/MqttSnBroker.cpp
+	../software/MqttSnBroker.hpp
 	../software/RoomControl.cpp
 	../software/RoomControl.hpp
+	../software/String.hpp
+	../software/StringBuffer.hpp
+	../software/tahoma_8pt.cpp
+	../software/tahoma_8pt.hpp
 	#../software/util.hpp
-	#../software/Array.hpp
 	#../software/Storage.cpp
 	#../software/Storage.hpp
 	#../software/Clock.hpp
@@ -79,8 +77,12 @@ set(EMULATOR
 	SystemTimer.hpp
 	Clock.cpp
 	Clock.hpp
-	Udp6.cpp
-	Udp6.hpp
+	#Udp6.cpp
+	#Udp6.hpp
+	UpLink.cpp
+	UpLink.hpp
+	DownLink.cpp
+	DownLink.hpp
 	Display.cpp
 	Display.hpp
 	Inputs.cpp
@@ -107,7 +109,7 @@ include_directories(emulator
 	PRIVATE
 		.
 		../software
-		../MQTTSNPacket/src
+		#../MQTTSNPacket/src
 		${Boost_INCLUDE_DIR}
 )
 target_link_libraries(emulator
@@ -116,5 +118,36 @@ target_link_libraries(emulator
 		${CMAKE_THREAD_LIBS_INIT}
 		${CMAKE_DL_LIBS}
 		${Boost_SYSTEM_LIBRARY}
-		MQTTSNPacketClient
+		#MQTTSNPacketClient
+		#MQTTSNPacketServer
+)
+
+
+# test broker
+add_executable(testBroker
+	testBroker.cpp
+	../software/MqttSnClient.cpp
+	../software/MqttSnClient.hpp
+	../software/MqttSnBroker.cpp
+	../software/MqttSnBroker.hpp
+	UpLink.cpp
+	UpLink.hpp
+	DownLink.cpp
+	DownLink.hpp
+	SystemTimer.cpp
+	SystemTimer.hpp
+	global.cpp
+	global.hpp
+)
+include_directories(testBroker
+	PRIVATE
+		.
+		../software
+		${Boost_INCLUDE_DIR}
+)
+target_link_libraries(emulator
+	PRIVATE
+		${CMAKE_THREAD_LIBS_INIT}
+		${CMAKE_DL_LIBS}
+		${Boost_SYSTEM_LIBRARY}
 )

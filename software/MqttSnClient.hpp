@@ -1,23 +1,116 @@
 #pragma once
 
-#include "Udp6.hpp"
+#include "UpLink.hpp"
 #include "SystemTimer.hpp"
 #include "String.hpp"
-#include "MQTTSNPacket.h"
+//#include "MQTTSNPacket.h"
+
+// MQTT-SN helper functions
+
+namespace mqttsn {
+
+enum MessageType {
+	ADVERTISE = 0x00,
+	SEARCHGW = 0x01,
+	GWINFO = 0x02,
+	CONNECT = 0x04,
+	CONNACK = 0x05,
+	WILLTOPICREQ = 0x06,
+	WILLTOPIC = 0x07,
+	WILLMSGREQ = 0x08,
+	WILLMSG = 0x09,
+	REGISTER = 0x0a,
+	REGACK = 0x0b,
+	PUBLISH = 0x0c,
+	PUBACK = 0x0d,
+	PUBCOMP = 0x0e,
+	PUBREC = 0x0f,
+	PUBREL = 0x10,
+	SUBSCRIBE = 0x12,
+	SUBACK = 0x13,
+	UNSUBSCRIBE = 0x14,
+	UNSUBACK = 0x15,
+	PINGREQ = 0x16,
+	PINGRESP = 0x17,
+	DISCONNECT = 0x18,
+	WILLTOPICUPD = 0x1a,
+	WILLTOPICRESP = 0x1b,
+	WILLMSGUPD = 0x1c,
+	WILLMSGRESP = 0x1d,
+	ENCAPSULATED = 0xfe,
+	UNKNOWN_MESSAGE_TYPE = 0xff
+};
+
+enum class TopicType {
+	NORMAL = 0, // topic id in publish, topic name in subscribe
+	PREDEFINED = 1,
+	SHORT = 2
+};
+
+enum class ReturnCode {
+	ACCEPTED,
+	REJECTED_CONGESTED,
+	REJECTED_INVALID_TOPIC_ID,
+	NOT_SUPPORTED
+};
+
+inline bool getDup(uint8_t flags) {
+	return (flags & (1 << 7)) != 0;
+}
+
+inline int8_t getQos(uint8_t flags) {
+	int8_t qos = flags >> 5;
+	return ((qos + 1) & 3) - 1;
+}
+
+inline bool getRetain(uint8_t flags) {
+	return (flags & (1 << 4)) != 0;
+}
+
+inline TopicType getTopicType(uint8_t flags) {
+	return TopicType(flags & 3);
+}
+
+inline uint16_t getUShort(uint8_t const *buffer) {
+	return (buffer[0] << 8) + buffer[1];
+}
+
+
+inline uint8_t makeQos(int8_t qos) {
+	return (qos & 3) << 5;
+}
+
+inline uint8_t makeRetain(bool retain) {
+	return uint8_t(retain) << 4;
+}
+
+inline uint8_t makeTopicType(TopicType topicType) {
+	return uint8_t(topicType);
+}
+
+inline void setUShort(uint8_t *buffer, uint16_t value) {
+	buffer[0] = uint8_t(value >> 8);
+	buffer[1] = uint8_t(value);
+}
+
+}
+
 
 
 /**
  * MQTT-SN client inspired by C implementation by Nordic Semiconductor
- * http://www.mqtt.org/new/wp-content/uploads/2009/06/MQTT-SN_spec_v1.2.pdf
+ * https://www.oasis-open.org/committees/download.php/66091/MQTT-SN_spec_v1.2.pdf
+ * Inherits platform dependent (hardware or emulator) components for network and timing
+ * Gateway search is removed as we know that our gateway is always on the other side of the up-link
  */
-class MqttSnClient : public Udp6, public SystemTimer {
+class MqttSnClient : public UpLink, public SystemTimer {
 public:
 
 	// Port the MQTT-SN client binds to
-	static constexpr int CLIENT_PORT = 47194;
+	//static constexpr int CLIENT_PORT = 47194;
 
 	// Port of the gateway
-	static constexpr int GATEWAY_PORT = 47193;
+	//static constexpr int GATEWAY_PORT = 47193;
 
 	// Default retransmission time
 	static constexpr SystemDuration RETRANSMISSION_INTERVAL = 8s;
@@ -32,27 +125,60 @@ public:
 	//static constexpr int DEFAULT_SLEEP_DURATION = 30;
 
 	// Maximum length of Client ID according to the protocol spec in bytes
-	static constexpr int CLIENT_ID_MAX_LENGTH = 23;
+	static constexpr int MAX_CLIENT_ID_LENGTH = 23;
 
-	// Maximum length of a packet
-	static constexpr int PACKET_MAX_LENGTH = 64;
+	// Maximum length of a message
+	static constexpr int MAX_MESSAGE_LENGTH = 64;
 
 	// Maximum length of will feature buffers. For internal use only
 	static constexpr int WILL_TOPIC_MAX_LENGTH = 32;
 	static constexpr int WILL_MSG_MAX_LENGTH = 32;
 
-	enum class Result : uint8_t
-	{
+
+	// maximum number of queued messages
+	static constexpr int MAX_SEND_COUNT = 16;//128; // must be power of 2
+	
+	// size of message buffer
+	static constexpr int SEND_BUFFER_SIZE = 2048;
+
+
+	// error types
+	
+	// error parsing the message, e.g. too short
+	static constexpr int ERROR_MESSAGE = 0;
+	
+	// gateway returned mqttsn::ReturnCode::REJECTED_CONGESTED
+	static constexpr int ERROR_CONGESTED = 1;
+	
+	// message type is not supported
+	static constexpr int ERROR_UNSUPPORTED = 2;
+	
+
+	// request result
+	enum class Result {
+		// method executed ok
 		OK,
+		
+		// invalid method parameter
 		INVALID_PARAMETER,
+		
+		// method invalid in current client state
 		INVALID_STATE,
+		
+		// client is busy processing a request
 		BUSY
 	};
 
+	struct MessageResult {
+		Result result;
+		uint16_t msgId;
+	};
+
+	// state of this MQTT-SN client
 	enum class State : uint8_t
 	{
 		STOPPED,
-		SEARCHING_GATEWAY,
+		//SEARCHING_GATEWAY,
 		CONNECTING,
 		CONNECTED,
 		DISCONNECTING,
@@ -68,7 +194,7 @@ public:
 	};
 	
 
-	MqttSnClient();
+	MqttSnClient(UpLink::Parameters const &upParameters);
 
 	~MqttSnClient() override;
 
@@ -77,38 +203,32 @@ public:
 	 */
 	State getState() {return this->state;}
 	bool isStopped() {return this->state == State::STOPPED;}
-	bool isSearchingGateway() {return this->state == State::SEARCHING_GATEWAY;}
 	bool isConnecting() {return this->state == State::CONNECTING;}
 	bool isConnected() {return this->state == State::CONNECTED;}
 	bool isAsleep() {return this->state == State::ASLEEP;}
 	bool isAwake() {return this->state == State::AWAKE;}
-	//bool isDisconnected() {return this->state == State::SEARCH_GATEWAY;}
-	bool canConnect() {return isSearchingGateway() || isAsleep() || isAwake();}
+	bool canConnect() {return isStopped() || isAsleep() || isAwake();}
 
 	/**
-	 * Returns true if transport is busy sending a packet. Guaranteed to be false in the "on..." user callbacks
+	 * Returns true if send queue is full
 	 */
 	bool isBusy() {return this->busy;}
-
-
-	// interface to gateway
-	// --------------------
 
 	/**
 	 * Start searching for a gateway. When a gateway is found, onGatewayFound() gets called
 	 */
-	Result searchGateway();
+	//Result::Status searchGateway();
 	
 	/**
 	 * Connect to a gateway, e.g. in onGatewayFound() when an advertisement of a gateway has arrived
 	 * @param gateway gateway ip address, scope and port
 	 * @param gatewayId id of gateway
-	 * @param clientId unique client ID
+	 * @param clientName client name
 	 * @param cleanSession clean session flag
 	 * @param willFlag if set, the gateway will request the will topic and will message
 	 */
-	Result connect(Udp6Endpoint const &gateway, uint8_t gatewayId, String clientId, bool cleanSession = false,
-		bool willFlag = false);
+	Result connect(/*Udp6Endpoint const &gateway, uint8_t gatewayId,*/ String clientName,
+		bool cleanSession = false, bool willFlag = false);
 	
 	/**
 	 * Disconnect from gateway
@@ -119,51 +239,59 @@ public:
 
 	/**
 	 * Send a ping to the gateway
+	 * @return result containing success status and message id
 	 */
 	Result ping();
 
+
 	/**
 	 * Register a topic at the gateway. On success, onRegistered() gets called with the topicId to use in publish()
+	 * @param topicName topic name (path without wildcards)
+	 * @return result containing success status and message id
 	 */
-	Result registerTopic(String topic);
+	MessageResult registerTopic(String topicName);
 
 	/**
 	 * Publish a message on a topic
 	 * @param topicId id obtained using registerTopic()
-	 * @param payload data
-	 * @param payload data length
-	 * @param retained retained mode
-	 * @param qos quality of service: 0, 1, 2 or 3
+	 * @param data payload data
+	 * @param length payload data length
+	 * @param qos quality of service level: 0, 1, 2 or -1. Must not be higher than granted qos for the topic
+	 * @param retain retain message and deliver to new subscribers
+	 * @return result result code
 	 */
-	Result publish(uint16_t topicId, uint8_t const *data, uint16_t length, bool retained = false, int8_t qos = 1);
+	Result publish(uint16_t topicId, uint8_t const *data, int length, int8_t qos, bool retain = false);
 
-	Result publish(uint16_t topicId, String data, bool retained = false, int8_t qos = 1) {
-		return publish(topicId, reinterpret_cast<uint8_t const*>(data.data), data.length, retained, qos);
+	Result publish(uint16_t topicId, String data, int8_t qos, bool retain = false) {
+		return publish(topicId, reinterpret_cast<uint8_t const*>(data.data), data.length, qos, retain);
 	}
 
 	/**
 	 * Subscribe to a topic. On success, onSubscribed() is called with a topicId that is used in subsequent onPublish() calls
+	 * @param topicFilter topic filter (path that may contain wildcards)
+	 * @param qos requeted quality of service level of the subscription, granted level gets passed to onSubscribed()
+	 * @return result containing success status and message id
 	 */
-	Result subscribeTopic(String topic);
+	MessageResult subscribeTopic(String topicFilter, int8_t qos = 1);
 
 	/**
 	 * Unsubscribe from a topic. On success, onUnsubscribed() is called
+	 * @param msgId message id obtained by getNextMsgId() topic name (path without wildcards)
+	 * @param topic topic filter (path that may contain wildcards)
+	 * @return result containing success status and message id
 	 */
-	Result unsubscribeTopic(String topic);
+	Result unsubscribeTopic(String topicFilter);
 
 	//Result updateWillTopic();
 	//Result updateWillMessage();
 	
 protected:
-
-	Result regAck(uint16_t topicId, uint16_t packetId, uint8_t returnCode);
-
 	
-	// user callbacks (isBusy() is guaranteed to be false in a callback)
-	// -----------------------------------------------------------------
+// user callbacks
+// --------------
 		
 	// Client has found a gateway
-	virtual void onGatewayFound(Udp6Endpoint const &sender, uint8_t gatewayId) = 0;
+	//virtual void onGatewayFound(Udp6Endpoint const &sender, uint8_t gatewayId) = 0;
 
 	// Client has connected successfully
 	virtual void onConnected() = 0;
@@ -177,106 +305,112 @@ protected:
 	// Client should wake up
 	virtual void onWakeup() = 0;	
 			
-	// Client has received a topic to register (wildcard topic only)
-	virtual void onRegister(const char* topic, uint16_t topicId) = 0;
+	// Client has received a topic to register (when registerTopic() was called with wildcard topic)
+	//virtual void onRegister(String topic, uint16_t topicId) = 0;
 
-	// Client has registered a topic
-	virtual void onRegistered(uint16_t packetId, uint16_t topicId) = 0;
+	/**
+	 * Client has registered a topic
+	 * @param msgId message id returned by subscribe()
+	 * @param topicName topic name (path without wildcards). Only valid as long as no new messages are sent
+	 * @param topicId topic id to use in onPublish()
+	 */
+	virtual void onRegistered(uint16_t msgId, String topicName, uint16_t topicId) = 0;
 
-	// Gateway publishes a message on a subscribed topic
-	virtual void onPublish(uint16_t topicId, uint8_t const *data, int length, bool retained, int8_t qos) = 0;
-
-	// Client has published a message successfully
-	virtual void onPublished(uint16_t packetId, uint16_t topicId) = 0;
-
-	// Client has subscribed successfully
-	virtual void onSubscribed(uint16_t packetId, uint16_t topicId) = 0;
-
-	// Client has unsubscribed successfully
-	virtual void onUnsubscribed() = 0;
+	/**
+	 * Client as subscribed to a topic
+	 * @param msgId message id returned by subscribe()
+	 * @param topicName topic name (path without wildcards). Only valid as long as no new messages are sent
+	 * @param qos granted quality of service level
+	 * @param topicId topic id to use in onPublish() or 0 if subscribed topic contains wildcards
+	 */
+	virtual void onSubscribed(uint16_t msgId, String topicName, uint16_t topicId, int8_t qos) = 0;
 	
-	// Client has updated the will topic successfully
-	//virtual void onWillTopicUpdated() = 0;
-	
-	// Client has updated the will message successfully
-	//virtual void onWillMessageUpdated() = 0;
+	/**
+	 * Gateway publishes a message on a subscribed topic
+	 * @return return code
+	 */
+	virtual mqttsn::ReturnCode onPublish(uint16_t topicId, uint8_t const *data, int length, int8_t qos, bool retain) = 0;
 
 	/**
-	 * Invalid packet has been received
+	 * Error has occurred
+	 * @param error type
+	 * @param messageType message type when known
 	 */
-	virtual void onPacketError() = 0;
-
-	/**
-	 * Gateway rejected request due to congestion
-	 * @param messageType type of message for which the error occurred
-	 */
-	virtual void onCongestedError(MQTTSN_msgTypes messageType) = 0;
-
-	/**
-	 * Message type is unsupported
-	 * @param messageType type of message for which the error occurred
-	 */
-	virtual void onUnsupportedError(MQTTSN_msgTypes messageType) = 0;
-	
-public:
-
-	// user activity
-	// -------------
-
-	/**
-	 * When the user wants to do an action (e.g. publish()) the client may be busy. Therefore request that doNext() is called as soon as possible
-	 */
-	void requestNext();
-
-	/**
-	 * The user can do the next action (e.g. publish()) and indicate the time when more actions are intended
-	 * @return time when doNext() should be called again
-	 */
-	virtual SystemTime doNext(SystemTime time) = 0;
+	virtual void onError(int error, mqttsn::MessageType messageType = mqttsn::UNKNOWN_MESSAGE_TYPE) = 0;
 
 protected:
 
-	// transport
-	// ---------
+// transport
+// ---------
 
-	void onReceivedUdp6(int length) override;
+	void onUpReceived(int length) override;
 
-	void onSentUdp6() override;
+	void onUpSent() override;
 
-	void onSystemTimeout(SystemTime time) override;
+	void onSystemTimeout1(SystemTime time) override;
     
+private:
 
-	// internal
-	// --------
+// internal
+// --------
 	
-	void processPacket(const Udp6Endpoint &sender, const uint8_t *data, int length);
-	void processTimeout(SystemTime time);
-	
-	uint16_t nextPacketId();
+	struct MessageInfo {
+		// offset in message buffer
+		uint16_t offset;
 
+		// message id
+		uint16_t msgId;
+		
+		// time when the message was sent the first time
+		SystemTime sentTime;
+	};
+
+	struct Message {
+		MessageInfo *info;
+		uint8_t *data;
+	};
+
+	// Get a message id. Use only for retries of the same message until it was acknowledged by the gateway
+	uint16_t getNextMsgId() {return this->nextMsgId = this->nextMsgId == 0xffff ? 1 : this->nextMsgId + 1;}
+
+	// allocate a send message with given length or 0 if no space available
+	Message addSendMessage(int length, mqttsn::MessageType type);
+
+	// send the current message and make next message current or try to garbage collect it if msgId is zero
+	void sendCurrentMessage();
+	
+	// resend oldest message that is still in the queue
+	void resend();
+
+	// get a previously sent message by id
+	Message getSentMessage(uint16_t msgId);
+
+	// remove sent message with given id from message queue
+	uint8_t *removeSentMessage(uint16_t msgId, mqttsn::MessageType type);
+	
 	// state
 	State state = State::STOPPED;
 		
 	// gateway
-	uint8_t gatewayId;
-	Udp6Endpoint gateway;
+	//uint8_t gatewayId;
+	//Udp6Endpoint gateway;
 
-	// id for next packet
-	uint16_t packetId = 0;
+	// id for next message to gateway to be able to associate the reply with a request
+	uint16_t nextMsgId = 0;
 	
-	// cache for packet to send
-	uint8_t sendPacket[PACKET_MAX_LENGTH];
-	int sendLength;
-
-	// transport is busy sending a packet
+	// send message queue
+	int sendMessagesHead = 0;
+	int sendMessagesCurrent = 0;
+	int sendMessagesTail = 0;
+	MessageInfo sendMessages[MAX_SEND_COUNT];
+	int sendBufferHead = 0;
+	int sendBufferFill = 0;
+	uint8_t sendBuffer[SEND_BUFFER_SIZE];
 	bool busy = false;
 
-	// cache for received packet
-	Udp6Endpoint sender;
-	uint8_t receivePacket[PACKET_MAX_LENGTH];
-	int receiveLength = 0;
-	
-	// next time for keep alive message to the gateway
-	SystemTime keepAliveTime;
-	bool timeoutPending = false;
+	// receive message buffer
+	//Udp6Endpoint sender;
+	uint8_t receiveMessage[MAX_MESSAGE_LENGTH];
+		
+	bool resendPending = false;
 };

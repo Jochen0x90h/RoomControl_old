@@ -46,18 +46,7 @@ public:
 	StringBuffer() {}
 	
 	void clear() {this->index = 0;}
-	/*
-	template <typename T>
-	StringBuffer &operator = (const T &value) {
-		this->index = 0;
-		return operator , (value);
-	}
 
-	template <typename T>
-	StringBuffer &operator += (const T &value) {
-		return operator , (value);
-	}
-*/
 	StringBuffer &operator << (char ch) {
 		if (this->index < L)
 			this->buffer[this->index++] = ch;
@@ -65,28 +54,6 @@ public:
 		return *this;
 	}
 
-/*
-	StringBuffer &operator , (const char* s) {
-		while (*s != 0 && this->index < L) {
-			this->buffer[this->index++] = *(s++);
-		}
-		this->buffer[this->index] = 0;
-		return *this;
-	}
-
-
-	template <int N>
-	StringBuffer &operator , (const char (&string)[N]) {
-		for (int i = 0; i < N && this->index < L; ++i) {
-			char ch = string[i];
-			if (ch == 0)
-				break;
-			this->buffer[this->index++] = ch;
-		}
-		this->buffer[this->index] = 0;
-		return *this;
-	}
-*/
 	StringBuffer &operator << (const String &str) {
 		for (int i = 0; i < str.length && this->index < L; ++i) {
 			char ch = str.data[i];
