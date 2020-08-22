@@ -1,0 +1,17 @@
+2 100n 0603
+1 10u/25V/X7R 1206
+1 22u/16V 0805
+1 STM32F042F6
+1 NCV7718 (On relay driver)
+1 NCV7428MW3 (On lin driver)
+1 BAS40-05/BAT54C
+4 D2F-01 (Omron switch)
+4 G6SU-2 (Omron relay)
+1 Wago 236-403
+1 Wago 236-407
+
+[optional]
+2 330R 0603
+2 LED 0805
+1 Diode 1206
+2 PLW5-3MM (Bivar lightpipe)

@@ -1,7 +1,7 @@
 (module On_NCV77xx (layer F.Cu) (tedit 5EC043C1)
   (fp_text reference REF** (at 0 -6.325) (layer F.SilkS) (effects (font (size 1 1) (thickness 0.15))))
   (fp_text value On_NCV77xx (at 0 -5.125) (layer F.Fab) (effects (font (size 1 1) (thickness 0.15))))
-  (descr "https://www.onsemi.com/pub/Collateral/NCV7718-D.PDF https://www.onsemi.com/pub/Collateral/NCV7719-D.PDF https://www.onsemi.com/pub/Collateral/NCV7720-D.PDF")
+  (descr "Half bridge driver (https://www.onsemi.com/pub/Collateral/NCV7718-D.PDF https://www.onsemi.com/pub/Collateral/NCV7719-D.PDF https://www.onsemi.com/pub/Collateral/NCV7720-D.PDF)")
   (fp_line (start -1.95 -3.545) (end -1.17 -4.325) (width 0.1) (layer F.Fab))
   (fp_line (start -1.17 -4.325) (end 1.95 -4.325) (width 0.1) (layer F.Fab))
   (fp_line (start 1.95 -4.325) (end 1.95 4.325) (width 0.1) (layer F.Fab))

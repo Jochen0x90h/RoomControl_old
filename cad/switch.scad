@@ -7,14 +7,12 @@ minGap = 0.8;
 pcbZ1 = 0;
 pcbZ2 = 1.6;
 
-baseZ0 = 0.3 + 0.1; // height of bottom plane (+0.1 for adhesive label)
-baseZ2 = baseZ0 + 1.7; // base plate
-baseZ1 = baseZ2 - 0.8; // bearing surface
+height = 13.8; // overall height
 
 axisD = 2.5;
-axisX2 = 37.2 / 2; // outer rocker axis
-axisX1 = axisX2 - 15.85; // inner rocker axis
-axisZ = baseZ2 + 8.2;
+axisX2 = /*37.2*/36.8 / 2; // outer rocker axis
+axisX1 = 37.2/2 - 15.85; // inner rocker axis
+axisZ = height - 1.3;
 axisCoutoutWidth = 7;
 axisCutoutZ = axisZ - 2.5;
 
@@ -27,16 +25,17 @@ bodyZ2 = axisZ + axisD / 2;
 actuatorWidth = 3.2;
 actuatorX = 17 / 2;
 actuatorY = 20 / 2;
-actuatorZ = baseZ1 + 9.8;
+actuatorZ = axisZ - 1.3 + 2;
 
 // micro switch Omron D2F-01
 switchWidth = 5.8 + 0.2; // tolerance
 switchHeight = 12.8;
 switchX = switchHeight / 2;
 switchY = 10;
-switchZ2 = actuatorZ - 1 - 1;
+switchZ2 = pcbZ2+6.5;//actuatorZ - 1 - 1;
 switchZ1 = switchZ2 - 5;
 switchZ0 = switchZ1 - 1.5;
+switchZ3 = switchZ2 + 1; // actuator
 switchesX2 = switchX + switchHeight / 2;
 switchesWidth = switchesX2 * 2;
 switchesY2 = switchY + switchWidth / 2;
@@ -54,25 +53,28 @@ topY = switchY;
 topY1 = switchY - topHeight/2;
 topY2 = switchY + topHeight/2;
 
+// screws
 screwX = 20.5;
-screwY = 6.6;
+screwY = -6.6;
 screwD = 2.5;
-screwMountSize = 5.8; // overall clearance is 6x6mm
+screwMountSize = 6; // overall clearance is 6x6mm
 
 // actuation angle
 angle = 5.4; // maximum actuation angle
 tanAngle = tan(angle);
 
 // actuator bar (front)
-barWidth = axisX2 - minWall - minGap;
+barWidth = (32 + 2) / 2;
 barX = barWidth / 2;
 barY1 = 34.4 / 2;
 barY2 = 40 / 2;
 barY = (barY1 + barY2) / 2;
-barZ2 = baseZ2 + 6.9;
+barZ2 = axisZ - 1.3;
 barZ1 = barZ2 - 2; // thickness of bar
+echo(barZ1);
 barHeight = barY2 - barY1;
 barTravel = barY * tanAngle;
+echo(barTravel);
 
 // lever (left / right)
 leverX1 = switchesX2 + 1; // 1mm left/right tolerance
@@ -97,7 +99,6 @@ front2Y2 = 33.3 / 2;
 front2Y = (front2Y1 + front2Y2) / 2;
 front2Height = front2Y2 - front2Y1;
 
-
 // mount
 mount1X1 = 22.5;
 mount1X2 = 24;
@@ -110,7 +111,7 @@ mount1Height = (mount1Y2 - mount1Y1);
 mount2X1 = 13.2;
 mount2X2 = 18.2;
 mount2X = (mount2X1 + mount2X2) / 2;
-mount2Y1 = 22;
+mount2Y1 = 23;//22;
 mount2Y2 = 24;
 mount2Y = (mount2Y1 + mount2Y2) / 2;
 mount2Width = (mount2X2 - mount2X1);
@@ -120,6 +121,13 @@ mountZ2 = bodyZ2 - mount2Y2 * tanAngle;
 mountZ3 = bodyZ2 - mount1Y2 * tanAngle;
 mountDiag = 58.1;
 
+// led
+ledX = 15.75;
+ledY = 22;
+ledZ2 = bodyZ2 + 2.5 - 2.54 - ledY * tanAngle - 0.3; // tolerance
+ledZ1 = ledZ2 - 3; 
+ledZ0 = ledZ1 - 1;
+ledD = 4;
 
 
 // box with center/size in x/y plane and z ranging from z1 to z2
@@ -234,15 +242,40 @@ module slopeY(x, y, w, h, z1, z2, z3, z4, tb=1) {
 }
 
 module drill(x, y, d) {
+	shift = 0;
 	h1 = 2;
-	w1 = h1 + 2;
+	w1 = h1 + shift;
 	h2 = d + 0.1;
-	w2 = h2 + 2;
+	w2 = h2 + shift;
 	frustum(x, y, w1, h1, w2, h2, pcbZ2-0.1, pcbZ2+1.5);
 	box(x, y, w2, h2, pcbZ2, bodyZ1);
 }
 
 module drills() {
+	drill(17.46, 10.16, 1);
+	drill(17.46, 5.08, 1);
+	drill(17.46, 2.54, 1);
+	drill(17.46, 0, 1);
+	drill(22.54, 10.16, 1);
+	drill(22.54, 5.08, 1);
+	drill(22.54, 2.54, 1);
+	drill(22.54, 0, 1);
+	drill(-16.75, 22, 1);
+	drill(-14.75, 22, 1);
+	drill(-12.75, 22, 1);
+	drill(-19.4, 25.5, 1);
+	drill(-16.86, 25.5, 1);
+	drill(-14.32, 25.5, 1);
+	drill(-11.78, 25.5, 1);
+	drill(-9.24, 25.5, 1);
+	drill(-22.54, 10.16, 1);
+	drill(-22.54, 5.08, 1);
+	drill(-22.54, 2.54, 1);
+	drill(-22.54, 0, 1);
+	drill(-17.46, 10.16, 1);
+	drill(-17.46, 5.08, 1);
+	drill(-17.46, 2.54, 1);
+	drill(-17.46, 0, 1);
 	drill(1.6, 2.54, 1);
 	drill(1.6, -2.54, 1);
 	drill(6.68, 2.54, 1);
@@ -259,59 +292,41 @@ module drills() {
 	drill(-6.68, -2.54, 1);
 	drill(-1.6, 2.54, 1);
 	drill(-1.6, -2.54, 1);
-	drill(17.46, 0, 1);
-	drill(17.46, -2.54, 1);
-	drill(17.46, -5.08, 1);
-	drill(17.46, -10.16, 1);
-	drill(22.54, 0, 1);
-	drill(22.54, -2.54, 1);
-	drill(22.54, -5.08, 1);
-	drill(22.54, -10.16, 1);
-	drill(-22.54, 0, 1);
-	drill(-22.54, -2.54, 1);
-	drill(-22.54, -5.08, 1);
-	drill(-22.54, -10.16, 1);
-	drill(-17.46, 0, 1);
-	drill(-17.46, -2.54, 1);
-	drill(-17.46, -5.08, 1);
-	drill(-17.46, -10.16, 1);
-	drill(9.24, -25.5, 1);
-	drill(11.78, -25.5, 1);
-	drill(14.32, -25.5, 1);
-	drill(16.86, -25.5, 1);
-	drill(19.4, -25.5, 1);
-	drill(1.32, 10, 1.1);
-	drill(6.4, 10, 1.1);
-	drill(11.48, 10, 1.1);
-	drill(-5, -16, 1.1);
-	drill(-5, -21, 1.1);
-	drill(0, -16, 1.1);
-	drill(0, -21, 1.1);
-	drill(5, -16, 1.1);
-	drill(5, -21, 1.1);
-	drill(-14.85, 21, 1.1);
-	drill(-14.85, 16, 1.1);
-	drill(-9.85, 21, 1.1);
-	drill(-9.85, 16, 1.1);
-	drill(-4.85, 21, 1.1);
-	drill(-4.85, 16, 1.1);
-	drill(0.15, 21, 1.1);
-	drill(0.15, 16, 1.1);
-	drill(5.15, 21, 1.1);
-	drill(5.15, 16, 1.1);
-	drill(10.15, 21, 1.1);
-	drill(10.15, 16, 1.1);
-	drill(15.15, 21, 1.1);
-	drill(15.15, 16, 1.1);
-	drill(1.32, -10, 1.1);
-	drill(6.4, -10, 1.1);
-	drill(11.48, -10, 1.1);
+	drill(12.75, 22, 1);
+	drill(14.75, 22, 1);
+	drill(16.75, 22, 1);
 	drill(-11.48, -10, 1.1);
 	drill(-6.4, -10, 1.1);
 	drill(-1.32, -10, 1.1);
+	drill(1.32, -10, 1.1);
+	drill(6.4, -10, 1.1);
+	drill(11.48, -10, 1.1);
+	drill(-5, 21, 1.1);
+	drill(-5, 16, 1.1);
+	drill(0, 21, 1.1);
+	drill(0, 16, 1.1);
+	drill(5, 21, 1.1);
+	drill(5, 16, 1.1);
+	drill(-15.15, -16, 1.1);
+	drill(-15.15, -21, 1.1);
+	drill(-10.15, -16, 1.1);
+	drill(-10.15, -21, 1.1);
+	drill(-5.15, -16, 1.1);
+	drill(-5.15, -21, 1.1);
+	drill(-0.15, -16, 1.1);
+	drill(-0.15, -21, 1.1);
+	drill(4.85, -16, 1.1);
+	drill(4.85, -21, 1.1);
+	drill(9.85, -16, 1.1);
+	drill(9.85, -21, 1.1);
+	drill(14.85, -16, 1.1);
+	drill(14.85, -21, 1.1);
 	drill(-11.48, 10, 1.1);
 	drill(-6.4, 10, 1.1);
 	drill(-1.32, 10, 1.1);
+	drill(1.32, 10, 1.1);
+	drill(6.4, 10, 1.1);
+	drill(11.48, 10, 1.1);
 }
 
 module switchSpikes(x, y, angle) {
@@ -348,28 +363,32 @@ module body() {
 	rightCatwalkWidth = bodyWidth / 2 - axisX2 + minWall;
 	rightCatwalkX = bodyWidth / 2  - rightCatwalkWidth / 2;
 
-	// actuator
+	// switch actuators
 	for (rl = [1, -1]) {
 		box(actuatorX*rl, 0,
-			actuatorWidth, (actuatorY+1)*2,
+			actuatorWidth, (actuatorY+1.5)*2,
 			actuatorZ-1, actuatorZ);
+		
+		for (tb = [1, -1]) {
+			box(actuatorX*rl, actuatorY*tb,
+				actuatorWidth, 1,
+				switchZ3, actuatorZ);
+		}
 	}
 	
-	// switch top
+	// switch cover
 	difference() {
 		union() {
 			for (tb = [1, -1]) {
-				// switch top
-				slopeY(0, topY*tb,
+				// top
+				box(0, topY*tb,
 					topWidth, topHeight,
-					switchZ2, switchZ2,
-					bodyZ2-tanAngle*topY1, bodyZ2-tanAngle*topY2,
-					tb);
-
-				// switch holder
+					switchZ2, switchZ2 + 1);
+				
+				// side
 				box(0, (topY2-0.5)*tb,
 					topWidth, 1,
-					switchZ1, bodyZ2-tanAngle*topY2);
+					switchZ1, switchZ2 + 1/*bodyZ2-tanAngle*topY2*/);
 			}
 		}
 		
@@ -410,22 +429,16 @@ module body() {
 				slopeY(screwX*rl, screwY,
 					screwMountSize, screwMountSize,
 					pcbZ2, pcbZ2,
-					bodyZ2-(screwY-3)*tanAngle, bodyZ2-(screwY+3)*tanAngle);
+					bodyZ2+(screwY-3)*tanAngle, bodyZ2+(screwY+3)*tanAngle);
 			}
 		}
 
 		// right / left
 		for (rl = [1, -1]) {
-					
-			// cut away space for lever
-			box(leverX*rl, 0,
-				leverWidth+2*minGap, leverHeight,
-				leverZ1-max(minGap, carrierHeight/2*tanAngle+0.1), leverZ2+1);
-		
 			// cut away mount for lever
 			box(leverX*rl, 0,
 				leverWidth+2*minGap, minGap+1+minGap+1+minGap,
-				pcbZ2+1.5, leverZ2);			
+				pcbZ2+1.5, leverZ2+1);			
 			
 			// hole for screw
 			barrel(screwX*rl, screwY, screwD, pcbZ1, bodyZ2);
@@ -442,6 +455,8 @@ module body() {
 
 
 module lever(rl, angle) {
+	// z value for "spring"
+	springZ = (pcbZ2+barZ1)/2;
 
 	// top/bottom
 	for (tb = [1, -1]) {
@@ -451,88 +466,103 @@ module lever(rl, angle) {
 		
 		// rotatable part
 		translate([0, 0, axisZ]) {
-			rotate([angle, 0, 0]) {
-				translate([0, 0, -axisZ]) {
-					// lever left/right
-					difference() {
-						box(leverX*rl, leverY*tb,
-							leverWidth, leverHeight, leverZ1, leverZ2);
-						
-						// cut away gap so that lever can rotate
-						axis(leverX*rl, (leverY1+1+0.5)*tb,
-							1, leverWidth+1, leverZ2-2);
-						box(leverX*rl, (leverY1+1+0.5)*tb,
-							leverWidth+1, 1, 0, leverZ2-2);
-					}
-
-					// lever front
-					slopeY(barX*rl, front1Y*tb,
-						barWidth, front1Height,
-						leverZ1, leverZ1+0.8, // avoid thru-hole wires
-						barZ2, barZ2,
-						tb);
-					box(barX*rl, front2Y*tb,
-						barWidth, front2Height,
-						barZ2, leverZ2);
-
-					// bar (increase height to connect to lever)
-					box(barX*rl, (barY-0.5)*tb,
-						barWidth, barHeight+1,
-						barZ1, barZ2);
-
-					// spring upper block
-					box(barHeight/2*rl, barY*tb,
-						barHeight, barHeight,
-						(pcbZ2+barZ1+barTravel)/2, barZ2);
+			rotate([angle, 0, 0])
+			translate([0, 0, -axisZ]) {
+				// lever left/right
+				difference() {
+					slopeY(leverX*rl, leverY*tb,
+						leverWidth, leverHeight,
+						leverZ2-4, leverZ1,
+						leverZ2, leverZ2, tb);
+					
+					// cut away gap so that lever can rotate
+					axis(leverX*rl, (leverY1+1+0.5)*tb,
+						1, leverWidth+1, leverZ2-2);
+					box(leverX*rl, (leverY1+1+0.5)*tb,
+						leverWidth+1, 1, 0, leverZ2-2);
 				}
+
+				// lever front
+				slopeY(barX*rl, front1Y*tb,
+					barWidth, front1Height,
+					leverZ1, leverZ1+0.8, // avoid thru-hole wires
+					barZ2, barZ2,
+					tb);
+				box(barX*rl, front2Y*tb,
+					barWidth, front2Height,
+					barZ2, leverZ2);
+
+				// bar (increase height to connect to lever)
+				box(barX*rl, (barY-0.5)*tb,
+					barWidth, barHeight+1,
+					barZ1, barZ2);
+
+				// spring upper block
+				box(barHeight/2*rl, barY*tb,
+					barHeight, barHeight,
+					springZ+barTravel/2, barZ2);
 			}
 		}
 		
 		// spring lower block
 		box(barHeight/2*rl, barY*tb,
 			barHeight, barHeight,
-			pcbZ2, (pcbZ2+barZ1-barTravel)/2);
+			pcbZ2, springZ-barTravel/2);
 		
 		// spring
 		slopeX(barX*rl, barY*tb,
 			barWidth, barHeight,
-			pcbZ2, pcbZ2+2,
-			pcbZ2+1, pcbZ2+3,
+			pcbZ2, springZ-0.75,
+			pcbZ2+1, springZ+0.25,
 			rl);
 		slopeX(barX*rl, barY*tb,
 			barWidth, barHeight,
-			pcbZ2+4.5, pcbZ2+2.5,
-			pcbZ2+5.5, pcbZ2+3.5,
+			barZ1-1, springZ-0.25,
+			barZ1, springZ+0.75,
 			rl);
 	}	
 }
 
 module mount() {
+	difference() {
+		union() {
+			// right/left
+			for (rl = [1, -1]) {
+				// top/bottom
+				for (tb = [1, -1]) {
+					slopeY(mount1X*rl, mount1Y*tb,
+						mount1Width, mount1Height,
+						pcbZ2, pcbZ2,
+						bodyZ2, mountZ3, tb);
+					
+				}
 
-	// top/bottom
-	for (tb = [1, -1]) {
-		// right/left
-		for (rl = [1, -1]) {
-			slopeY(mount1X*rl, mount1Y*tb,
-				mount1Width, mount1Height,
-				pcbZ2, pcbZ2,
-				bodyZ2, mountZ3, tb);
+				box(mount2X*rl, mount2Y,
+					mount2Width, mount2Height,
+					pcbZ2, ledZ0);
+
+				box(mount2X*rl, -mount2Y,
+					mount2Width, mount2Height,
+					pcbZ2, mountZ2);
+			}
 			
-			box(mount2X*rl, mount2Y*tb,
-				mount2Width, mount2Height,
-				pcbZ2, mountZ2);			
+			for (angle = [45, 135, 225, 315]) {
+				rotate([0, 0, angle]) {
+					box(mountDiag/2-0.5, 0,
+						1, 9,
+						pcbZ2, mountZ2);
+					slopeX(mountDiag/2+0.4, 0,
+						0.8, 8.2,
+						mountZ1, mountZ1,
+						mountZ2, mountZ1+1);
+				}
+			}			
 		}
-	}
-	
-	for (angle = [45, 135, 225, 315]) {
-		rotate([0, 0, angle]) {
-			box(mountDiag/2-0.5, 0,
-				1, 10,
-				pcbZ2, mountZ2);
-			slopeX(mountDiag/2, 0,
-				1.2, 8,
-				mountZ1, mountZ1,
-				mountZ2, mountZ1+0.1);
+		
+		// cutaway for leds
+		for (rl = [1, -1]) {
+			barrel(ledX*rl, ledY, ledD+2, ledZ0, ledZ2+1);			
+			barrel((ledX+1.27)*rl, ledY, 2, 0, ledZ1);			
 		}
 	}
 }
@@ -555,7 +585,7 @@ module switch(x, y, angle) {
 			
 			// actuator
 			color([1, 0, 0]) {
-				box(0, 5.2-6.5/2, 2.9, 1.2, switchZ2, switchZ2 + 1);
+				box(0, 5.2-6.5/2, 2.9, 1.2, switchZ2, switchZ3);
 			}
 			
 			// wires
@@ -585,15 +615,22 @@ module actuators(angle) {
 						actuatorZ, actuatorZ+1);
 					
 					box(0, barY,
-						barWidth*2, barHeight,
+						32, barHeight,
 						barZ2, barZ2+1);
 					box(0, -barY,
-						barWidth*2, barHeight,
+						32, barHeight,
 						barZ2, barZ2+1);
 			
 				}
 			}
 		}	
+	}
+}
+
+module led() {
+	color([0, 1, 0]) {
+		barrel(ledX, ledY, ledD, ledZ0, ledZ1);
+		barrel(ledX, ledY, 3, ledZ1, ledZ2);
 	}
 }
 
@@ -610,14 +647,23 @@ difference() {
 }
 
 
-//switch(switchX, -switchY, -90);
+switch(switchX, -switchY, -90);
 //switch(switchX, switchY, -90);
 //switch(-switchX, -switchY, 90);
 //switch(-switchX, switchY, 90);
 
-//actuators(0);
-//actuators(-leverAngle);
+actuators(0);
+//actuators(-angle);
 
 // screws
 //barrel(20.5, 8.5, 3, pcbZ1, pcbZ1+15);
 //barrel(-20.5, 8.5, 2, pcbZ1, pcbZ1+10);
+
+
+// measure overall height
+//color([0, 0, 0]) box(0, 0, 10, 10, 0, 11.3);
+//color([0, 0, 0]) box(0, 0, 10, 10, 0, 17.5);
+color([0, 0, 0]) box(0, 0, 10, 10, 0, 16-2.3);
+
+// led
+//led();

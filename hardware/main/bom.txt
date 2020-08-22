@@ -1,0 +1,45 @@
+1 120R 1206
+1 1k 1206
+3 10k 0603
+3 33k 0603
+1 900k 0603
+1 10M 0603
+2 12p 0603
+7 100n 0603
+3 10u/25V/X7R 1206
+3 22u/16V 0805
+1 E73-2G4M08S1C-52840
+1 NCV7428MW3 (On lin driver)
+1 MOC3043M (On optotriac)
+1 MAX98357A (Maxim audio driver)
+1 BME680 (Bosch air sensor)
+1 PEC12R-4217F-S0024 (Bourns poti)
+1 IRA-S410ST01 (Murata pir sensor)
+1 IML-0685 (lens)
+1 SFH 203 P (Osram photodiode)
+1 BAS40-05/BAT54C
+1 CR2032 holder
+1 32768Hz (crystal)
+1 S10K275 (varistor)
+1 Wago 236-405
+1 Wago 236-406
+1 USB_B_Micro
+1 24 pin display connector
+1 TPS82130 (Texas buck converter 17V)
+1 HLK-PM12 (AC/DC converter)
+1 CDS-25148-L100 (Cui Devices speaker)
+
+[inputs]
+3 33k 1206
+
+[ledstrip]
+2 120R 1206
+1 SP3485 (rs485 driver)
+1 100n 0603
+
+[optional]
+1 1k 1206
+2 4k7 0603
+1 DCX114YU
+1 BAS40-04/BAT54S
+1 NCV7428MW3 (On lin driver)

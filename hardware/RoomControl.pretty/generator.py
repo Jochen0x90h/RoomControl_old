@@ -264,14 +264,14 @@ for pinCount in [3, 5, 6, 7]:
 
 # ST STM32F042F6 microcontroller
 smdDilFootprint("STM32F042F6", 4.20, 6.60, 10, ROUNDRECT, 7.10 - 1.35, 0.65, 1.35, 0.40,
-	description="https://www.st.com/resource/en/datasheet/stm32f042f6.pdf")
+	description="Arm Cortex M0 microcontroller (https://www.st.com/resource/en/datasheet/stm32f042f6.pdf)")
 footer()
 
 
 
-# On NCV7718, NCV7720, NCV7726 motor driver
+# On NCV7718, NCV7720, NCV7726 half bridge driver
 smdDilFootprint("On_NCV77xx", 3.90, 8.65, 12, ROUNDRECT, 6.40 - 1.15, 0.65, 1.15, 0.40,
-	description="https://www.onsemi.com/pub/Collateral/NCV7718-D.PDF https://www.onsemi.com/pub/Collateral/NCV7719-D.PDF https://www.onsemi.com/pub/Collateral/NCV7720-D.PDF")
+	description="Half bridge driver (https://www.onsemi.com/pub/Collateral/NCV7718-D.PDF https://www.onsemi.com/pub/Collateral/NCV7719-D.PDF https://www.onsemi.com/pub/Collateral/NCV7720-D.PDF)")
 exposedPad(25, ROUNDRECT5, 0, 0, 2.8, 5.6)
 footer()
 
@@ -279,7 +279,7 @@ footer()
 
 # On NCV7428MW lin driver
 smdDilFootprint("On_NCV7428MW", 3.00, 3.00, 4, ROUNDRECT10, 3.30 - 0.60, 0.65, 0.60, 0.40,
-	description="https://www.onsemi.com/pub/Collateral/NCV7428-D.PDF")
+	description="LIN driver (https://www.onsemi.com/pub/Collateral/NCV7428-D.PDF)")
 exposedPad(9, ROUNDRECT5, 0, 0, 1.60, 2.56)
 footer()
 
@@ -287,7 +287,7 @@ footer()
 
 # Texas TPS82130 buck regulator
 smdDilFootprint("Texas_TPS82130", 2.9, 3.0, 4, ROUNDRECT10, 2.1, 0.65, 0.5, 0.4,
-	description="Texas SIL0008D MicroSiP, 8 Pin (http://www.ti.com/lit/ds/symlink/tps82130.pdf#page=19)",
+	description="Buck converter (http://www.ti.com/lit/ds/symlink/tps82130.pdf#page=19)",
 	model="${KISYS3DMOD}/Package_LGA.3dshapes/Texas_SIL0008D_MicroSiP-8-1EP_2.8x3mm_P0.65mm_EP1.1x1.9mm.wrl")
 exposedPad(9, ROUNDRECT5, 0, 0, 1.1, 1.9)
 epDrill = 0.3
@@ -299,18 +299,19 @@ footer()
 
 # Bosch BME680 air sensor, clockwise pin numbering
 smdDilFootprint("Bosch_BME680", 3.0, 3.0, 4, ROUNDRECT10, -2.40, 0.80, 0.45, 0.45,
-	description="Bosch BME680 air sensor (https://www.bosch-sensortec.com/products/environmental-sensors/gas-sensors-bme680/)")
+	description="Air sensor (https://www.bosch-sensortec.com/products/environmental-sensors/gas-sensors-bme680/)")
 footer()
 
 
 
+# Omron relay G6SU-2
 # bounding box
 right = 2.54 + 1.11
 left = -2.54 - 1.11
 top = -1.05
 bottom = top + 14.8
 header("Omron_G6SU-2", top,
-	description="Relay Omron G6SU-2, see http://omronfs.omron.com/en_US/ecb/products/pdf/en-g6s.pdf",
+	description="Relay 2A (http://omronfs.omron.com/en_US/ecb/products/pdf/en-g6s.pdf)",
 	model="{KISYS3DMOD}/Relay_THT.3dshapes/Relay_DPDT_Omron_G6S-2.wrl")
 fabRect(left, top, right, bottom)
 courtyardRect(left, top, right, bottom)
@@ -329,13 +330,14 @@ footer()
 
 
 
+# Omron micro switch D2F-01
 # bounding box
 right = 5.8 / 2
 left = -right
 bottom = 12.8 / 2
 top = -bottom
 header("Omron_D2F-01", top,
-	description="Switch Omron D2F-01, see https://omronfs.omron.com/en_US/ecb/products/pdf/en-d2f.pdf")
+	description="Micro switch (https://omronfs.omron.com/en_US/ecb/products/pdf/en-d2f.pdf)")
 fabRect(left, top, right, bottom)
 courtyardRect(left, top, right, bottom)
 silkScreenRect(left, top, right, bottom)
@@ -348,6 +350,53 @@ pitch = 5.08
 thruHolePad(3, ROUNDRECT, 0, 0, width, height, drill)
 thruHolePad(2, ROUNDRECT, 0, -pitch, width, height, drill)
 thruHolePad(1, ROUNDRECT, 0, pitch, width, height, drill)
+footer()
+
+
+
+# LED/photo diode holes
+pitch = 2.5
+width = 1.8
+height = 1.4
+right = pitch / 2 + width / 2
+left = -right
+bottom = height / 2
+top = -bottom
+silkScreenRight = right + silkScreenDistance + silkScreenWidth / 2
+silkScreenLeft = -silkScreenRight
+silkScreenBottom = bottom + silkScreenDistance + silkScreenWidth / 2
+silkScreenTop = -silkScreenBottom
+header("DiodeHoles", top)
+fabRect(left, top, right, bottom)
+courtyardRect(left, top, right, bottom)
+silkScreenRect(silkScreenLeft, silkScreenTop, silkScreenRight, silkScreenBottom)
+drill = 1
+thruHolePad(1, ROUNDRECT5, -pitch/2, 0, width, height, drill)
+thruHolePad(2, ROUNDRECT, pitch/2, 0, width, height, drill)
+footer()
+
+
+
+# LED/photo diode holes
+pitch = 2.0
+width = 1.6
+height = 1.4
+right = pitch + width / 2
+left = -right
+bottom = height / 2
+top = -bottom
+silkScreenRight = right + silkScreenDistance + silkScreenWidth / 2
+silkScreenLeft = -silkScreenRight
+silkScreenBottom = bottom + silkScreenDistance + silkScreenWidth / 2
+silkScreenTop = -silkScreenBottom
+header("DiodeHoles3", top)
+fabRect(left, top, right, bottom)
+courtyardRect(left, top, right, bottom)
+silkScreenRect(silkScreenLeft, silkScreenTop, silkScreenRight, silkScreenBottom)
+drill = 1
+thruHolePad(1, ROUNDRECT, -pitch, 0, width, height, drill)
+thruHolePad(2, ROUNDRECT5, 0, 0, width, height, drill)
+thruHolePad(3, ROUNDRECT, pitch, 0, width, height, drill)
 footer()
 
 
@@ -401,6 +450,8 @@ thruHolePad(3, CIRCLE, 0, 30, height+backClearance*2, width+backClearance*2, (he
 smdPad(3, CIRCLE, 0, 30, height+frontClearance*2, width+frontClearance*2, layers="F.Cu F.Mask")
 thruHolePad(4, CIRCLE, 0, -30, height+backClearance*2, width+backClearance*2, (height, width))
 smdPad(4, CIRCLE, 0, -30, height+frontClearance*2, width+frontClearance*2, layers="F.Cu F.Mask")
-npthPad(20.5, -6.6, 5, 3, clearance=1)
-npthPad(-20.5, -6.6, 5, 3, clearance=1)
+#npthPad(20.5, 6.6, 5, 3, clearance=1)
+#npthPad(-20.5, 6.6, 5, 3, clearance=1)
+npthPad(20.5, 6.6, 3, 3, clearance=1)
+npthPad(-20.5, 6.6, 3, 3, clearance=1)
 footer()

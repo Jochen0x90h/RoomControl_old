@@ -25,41 +25,8 @@ F 3 "http://www.st.com/st-web-ui/static/active/en/resource/technical/document/da
 	1    0    0    -1  
 $EndComp
 $Comp
-L Switch:SW_Push_SPDT SW1
-U 1 1 5EC1697E
-P 9200 2700
-F 0 "SW1" H 9200 2985 50  0000 C CNN
-F 1 "D2F-01" H 9200 2894 50  0000 C CNN
-F 2 "RoomControl:Omron_D2F-01" H 9200 2700 50  0001 C CNN
-F 3 "~" H 9200 2700 50  0001 C CNN
-	1    9200 2700
-	1    0    0    -1  
-$EndComp
-$Comp
-L Switch:SW_Push_SPDT SW2
-U 1 1 5EC18290
-P 9200 3450
-F 0 "SW2" H 9200 3735 50  0000 C CNN
-F 1 "D2F-01" H 9200 3644 50  0000 C CNN
-F 2 "RoomControl:Omron_D2F-01" H 9200 3450 50  0001 C CNN
-F 3 "~" H 9200 3450 50  0001 C CNN
-	1    9200 3450
-	1    0    0    -1  
-$EndComp
-$Comp
-L Switch:SW_Push_SPDT SW3
-U 1 1 5EC18D00
-P 10100 2700
-F 0 "SW3" H 10100 2985 50  0000 C CNN
-F 1 "D2F-01" H 10100 2894 50  0000 C CNN
-F 2 "RoomControl:Omron_D2F-01" H 10100 2700 50  0001 C CNN
-F 3 "~" H 10100 2700 50  0001 C CNN
-	1    10100 2700
-	1    0    0    -1  
-$EndComp
-$Comp
 L Switch:SW_Push_SPDT SW4
-U 1 1 5EC19284
+U 1 1 5EC1697E
 P 10100 3450
 F 0 "SW4" H 10100 3735 50  0000 C CNN
 F 1 "D2F-01" H 10100 3644 50  0000 C CNN
@@ -69,30 +36,41 @@ F 3 "~" H 10100 3450 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Relay:G6SU-2 K1
-U 1 1 5EC216D8
-P 4050 1350
-F 0 "K1" V 3283 1350 50  0000 C CNN
-F 1 "G6SU-2" V 3374 1350 50  0000 C CNN
-F 2 "RoomControl:Omron_G6SU-2" H 4050 1350 50  0001 L CNN
-F 3 "http://omronfs.omron.com/en_US/ecb/products/pdf/en-g6s.pdf" H 4050 1350 50  0001 C CNN
-	1    4050 1350
-	0    1    1    0   
+L Switch:SW_Push_SPDT SW3
+U 1 1 5EC18290
+P 10100 2700
+F 0 "SW3" H 10100 2985 50  0000 C CNN
+F 1 "D2F-01" H 10100 2894 50  0000 C CNN
+F 2 "RoomControl:Omron_D2F-01" H 10100 2700 50  0001 C CNN
+F 3 "~" H 10100 2700 50  0001 C CNN
+	1    10100 2700
+	1    0    0    -1  
 $EndComp
 $Comp
-L Relay:G6SU-2 K2
-U 1 1 5EC22979
-P 4050 3000
-F 0 "K2" V 3283 3000 50  0000 C CNN
-F 1 "G6SU-2" V 3374 3000 50  0000 C CNN
-F 2 "RoomControl:Omron_G6SU-2" H 4050 3000 50  0001 L CNN
-F 3 "http://omronfs.omron.com/en_US/ecb/products/pdf/en-g6s.pdf" H 4050 3000 50  0001 C CNN
-	1    4050 3000
-	0    1    1    0   
+L Switch:SW_Push_SPDT SW2
+U 1 1 5EC18D00
+P 9200 3450
+F 0 "SW2" H 9200 3735 50  0000 C CNN
+F 1 "D2F-01" H 9200 3644 50  0000 C CNN
+F 2 "RoomControl:Omron_D2F-01" H 9200 3450 50  0001 C CNN
+F 3 "~" H 9200 3450 50  0001 C CNN
+	1    9200 3450
+	1    0    0    -1  
+$EndComp
+$Comp
+L Switch:SW_Push_SPDT SW1
+U 1 1 5EC19284
+P 9200 2700
+F 0 "SW1" H 9200 2985 50  0000 C CNN
+F 1 "D2F-01" H 9200 2894 50  0000 C CNN
+F 2 "RoomControl:Omron_D2F-01" H 9200 2700 50  0001 C CNN
+F 3 "~" H 9200 2700 50  0001 C CNN
+	1    9200 2700
+	1    0    0    -1  
 $EndComp
 $Comp
 L Relay:G6SU-2 K3
-U 1 1 5EC23816
+U 1 1 5EC216D8
 P 5800 1350
 F 0 "K3" V 5033 1350 50  0000 C CNN
 F 1 "G6SU-2" V 5124 1350 50  0000 C CNN
@@ -103,13 +81,35 @@ F 3 "http://omronfs.omron.com/en_US/ecb/products/pdf/en-g6s.pdf" H 5800 1350 50 
 $EndComp
 $Comp
 L Relay:G6SU-2 K4
-U 1 1 5EC24B90
+U 1 1 5EC22979
 P 5800 3050
 F 0 "K4" V 5033 3050 50  0000 C CNN
 F 1 "G6SU-2" V 5124 3050 50  0000 C CNN
 F 2 "RoomControl:Omron_G6SU-2" H 5800 3050 50  0001 L CNN
 F 3 "http://omronfs.omron.com/en_US/ecb/products/pdf/en-g6s.pdf" H 5800 3050 50  0001 C CNN
 	1    5800 3050
+	0    1    1    0   
+$EndComp
+$Comp
+L Relay:G6SU-2 K1
+U 1 1 5EC23816
+P 4050 1350
+F 0 "K1" V 3283 1350 50  0000 C CNN
+F 1 "G6SU-2" V 3374 1350 50  0000 C CNN
+F 2 "RoomControl:Omron_G6SU-2" H 4050 1350 50  0001 L CNN
+F 3 "http://omronfs.omron.com/en_US/ecb/products/pdf/en-g6s.pdf" H 4050 1350 50  0001 C CNN
+	1    4050 1350
+	0    1    1    0   
+$EndComp
+$Comp
+L Relay:G6SU-2 K2
+U 1 1 5EC24B90
+P 4050 3000
+F 0 "K2" V 3283 3000 50  0000 C CNN
+F 1 "G6SU-2" V 3374 3000 50  0000 C CNN
+F 2 "RoomControl:Omron_G6SU-2" H 4050 3000 50  0001 L CNN
+F 3 "http://omronfs.omron.com/en_US/ecb/products/pdf/en-g6s.pdf" H 4050 3000 50  0001 C CNN
+	1    4050 3000
 	0    1    1    0   
 $EndComp
 $Comp
@@ -121,19 +121,19 @@ F 1 "Conn_01x07" V 7450 1400 50  0000 C CNN
 F 2 "RoomControl:Wago_236-407" H 7350 1400 50  0001 C CNN
 F 3 "~" H 7350 1400 50  0001 C CNN
 	1    7350 1400
-	-1   0    0    -1  
+	-1   0    0    1   
 $EndComp
-Text GLabel 2100 1700 2    50   Input ~ 0
-AX
-Text GLabel 2100 1500 2    50   Input ~ 0
-AY
-Text GLabel 2100 1400 2    50   Input ~ 0
-AZ
 Text GLabel 2100 1600 2    50   Input ~ 0
-BX
+AX
 Text GLabel 2100 1300 2    50   Input ~ 0
-BY
+AY
 Text GLabel 2100 1200 2    50   Input ~ 0
+AZ
+Text GLabel 2100 1700 2    50   Input ~ 0
+BX
+Text GLabel 2100 1500 2    50   Input ~ 0
+BY
+Text GLabel 2100 1400 2    50   Input ~ 0
 BZ
 Text GLabel 4350 950  2    50   Input ~ 0
 AX
@@ -382,12 +382,12 @@ L
 $Comp
 L power:GND #PWR0120
 U 1 1 5EC5C24A
-P 1000 5100
-F 0 "#PWR0120" H 1000 4850 50  0001 C CNN
-F 1 "GND" H 1005 4927 50  0000 C CNN
-F 2 "" H 1000 5100 50  0001 C CNN
-F 3 "" H 1000 5100 50  0001 C CNN
-	1    1000 5100
+P 950 4750
+F 0 "#PWR0120" H 950 4500 50  0001 C CNN
+F 1 "GND" H 955 4577 50  0000 C CNN
+F 2 "" H 950 4750 50  0001 C CNN
+F 3 "" H 950 4750 50  0001 C CNN
+	1    950  4750
 	1    0    0    -1  
 $EndComp
 $Comp
@@ -403,7 +403,7 @@ F 3 "" H 1500 4500 50  0001 C CNN
 $EndComp
 Text GLabel 2600 5150 0    50   Input ~ 0
 LIN
-Text GLabel 1000 4900 2    50   Input ~ 0
+Text GLabel 850  4650 2    50   Input ~ 0
 LIN
 $Comp
 L Device:C C10
@@ -488,25 +488,14 @@ HB_SCK
 Text GLabel 6550 5050 2    50   Input ~ 0
 HB_SS
 $Comp
-L power:GND #PWR0129
-U 1 1 5EC7AF0D
-P 7600 5450
-F 0 "#PWR0129" H 7600 5200 50  0001 C CNN
-F 1 "GND" H 7605 5277 50  0000 C CNN
-F 2 "" H 7600 5450 50  0001 C CNN
-F 3 "" H 7600 5450 50  0001 C CNN
-	1    7600 5450
-	1    0    0    -1  
-$EndComp
-$Comp
 L power:+3V3 #PWR0130
 U 1 1 5EC7B239
-P 8000 5350
-F 0 "#PWR0130" H 8000 5200 50  0001 C CNN
-F 1 "+3V3" H 8015 5523 50  0000 C CNN
-F 2 "" H 8000 5350 50  0001 C CNN
-F 3 "" H 8000 5350 50  0001 C CNN
-	1    8000 5350
+P 7750 5600
+F 0 "#PWR0130" H 7750 5450 50  0001 C CNN
+F 1 "+3V3" H 7765 5773 50  0000 C CNN
+F 2 "" H 7750 5600 50  0001 C CNN
+F 3 "" H 7750 5600 50  0001 C CNN
+	1    7750 5600
 	1    0    0    -1  
 $EndComp
 Text GLabel 6550 5650 2    50   Input ~ 0
@@ -533,70 +522,22 @@ Text GLabel 1150 1600 0    50   Input ~ 0
 HB_MISO
 Text GLabel 1150 1500 0    50   Input ~ 0
 HB_MOSI
-$Comp
-L Jumper:SolderJumper_2_Open JP1
-U 1 1 5ECA807C
-P 9200 4550
-F 0 "JP1" H 9200 4755 50  0000 C CNN
-F 1 "SolderJumper_2_Open" H 9200 4664 50  0000 C CNN
-F 2 "RoomControl:Jumper2" H 9200 4550 50  0001 C CNN
-F 3 "~" H 9200 4550 50  0001 C CNN
-	1    9200 4550
-	1    0    0    -1  
-$EndComp
-$Comp
-L Jumper:SolderJumper_2_Open JP2
-U 1 1 5ECAAA17
-P 9200 5000
-F 0 "JP2" H 9200 5205 50  0000 C CNN
-F 1 "SolderJumper_2_Open" H 9200 5114 50  0000 C CNN
-F 2 "RoomControl:Jumper2" H 9200 5000 50  0001 C CNN
-F 3 "~" H 9200 5000 50  0001 C CNN
-	1    9200 5000
-	1    0    0    -1  
-$EndComp
-$Comp
-L power:GND #PWR0134
-U 1 1 5ECAAF06
-P 9350 4550
-F 0 "#PWR0134" H 9350 4300 50  0001 C CNN
-F 1 "GND" H 9355 4377 50  0000 C CNN
-F 2 "" H 9350 4550 50  0001 C CNN
-F 3 "" H 9350 4550 50  0001 C CNN
-	1    9350 4550
-	1    0    0    -1  
-$EndComp
-$Comp
-L power:GND #PWR0135
-U 1 1 5ECAB384
-P 9350 5000
-F 0 "#PWR0135" H 9350 4750 50  0001 C CNN
-F 1 "GND" H 9355 4827 50  0000 C CNN
-F 2 "" H 9350 5000 50  0001 C CNN
-F 3 "" H 9350 5000 50  0001 C CNN
-	1    9350 5000
-	1    0    0    -1  
-$EndComp
-Text GLabel 9050 4550 0    50   Input ~ 0
-JPA
-Text GLabel 9050 5000 0    50   Input ~ 0
-JPB
-Text GLabel 5350 5650 0    50   Input ~ 0
-JPA
 Text GLabel 5350 5750 0    50   Input ~ 0
-JPB
+LEDB
+Text GLabel 5350 5650 0    50   Input ~ 0
+LEDA
 Text GLabel 7600 5050 2    50   Input ~ 0
 RESET
 $Comp
 L Connector_Generic:Conn_01x03 J2
 U 1 1 5ED31000
-P 800 5000
-F 0 "J2" H 800 5200 50  0000 C CNN
-F 1 "Conn_01x03" V 900 5000 50  0000 C CNN
-F 2 "RoomControl:Wago_236-403" H 800 5000 50  0001 C CNN
-F 3 "~" H 800 5000 50  0001 C CNN
-	1    800  5000
-	-1   0    0    -1  
+P 650 4750
+F 0 "J2" H 650 4950 50  0000 C CNN
+F 1 "Conn_01x03" V 750 4750 50  0000 C CNN
+F 2 "RoomControl:Wago_236-403" H 650 4750 50  0001 C CNN
+F 3 "~" H 650 4750 50  0001 C CNN
+	1    650  4750
+	-1   0    0    1   
 $EndComp
 $Comp
 L power:+12V #PWR0104
@@ -741,10 +682,10 @@ LIN_EN
 Text GLabel 3400 5250 2    50   Input ~ 0
 RESET
 $Comp
-L Device:LED D3
+L Device:LED D5
 U 1 1 5EFDFD1B
 P 4700 5700
-F 0 "D3" V 4750 5500 50  0000 L CNN
+F 0 "D5" V 4750 5500 50  0000 L CNN
 F 1 "LED" V 4650 5500 50  0000 L CNN
 F 2 "LED_SMD:LED_0805_2012Metric_Castellated" H 4700 5700 50  0001 C CNN
 F 3 "~" H 4700 5700 50  0001 C CNN
@@ -785,17 +726,15 @@ $EndComp
 Text GLabel 5350 4650 0    50   Input ~ 0
 RESET
 Wire Wire Line
-	1000 5000 1200 5000
-Wire Wire Line
 	1200 5000 1200 4800
 Connection ~ 1200 5000
 Wire Wire Line
 	7600 5350 8000 5350
 $Comp
-L Device:LED D4
+L Device:LED D6
 U 1 1 5F02CF2B
 P 5050 5700
-F 0 "D4" V 5100 5500 50  0000 L CNN
+F 0 "D6" V 5100 5500 50  0000 L CNN
 F 1 "LED" V 5000 5500 50  0000 L CNN
 F 2 "LED_SMD:LED_0805_2012Metric_Castellated" H 5050 5700 50  0001 C CNN
 F 3 "~" H 5050 5700 50  0001 C CNN
@@ -854,4 +793,121 @@ Wire Wire Line
 Wire Wire Line
 	1200 4200 1300 4200
 Connection ~ 1200 4800
+$Comp
+L power:+3V3 #PWR0119
+U 1 1 5F49D682
+P 9350 5750
+F 0 "#PWR0119" H 9350 5600 50  0001 C CNN
+F 1 "+3V3" H 9365 5923 50  0000 C CNN
+F 2 "" H 9350 5750 50  0001 C CNN
+F 3 "" H 9350 5750 50  0001 C CNN
+	1    9350 5750
+	1    0    0    -1  
+$EndComp
+$Comp
+L power:+3V3 #PWR0122
+U 1 1 5F49DDCC
+P 10100 5750
+F 0 "#PWR0122" H 10100 5600 50  0001 C CNN
+F 1 "+3V3" H 10115 5923 50  0000 C CNN
+F 2 "" H 10100 5750 50  0001 C CNN
+F 3 "" H 10100 5750 50  0001 C CNN
+	1    10100 5750
+	1    0    0    -1  
+$EndComp
+$Comp
+L Device:R R3
+U 1 1 5F4D6679
+P 9400 6200
+F 0 "R3" H 9470 6246 50  0000 L CNN
+F 1 "60R" H 9470 6155 50  0000 L CNN
+F 2 "Resistor_SMD:R_0603_1608Metric" V 9330 6200 50  0001 C CNN
+F 3 "~" H 9400 6200 50  0001 C CNN
+	1    9400 6200
+	1    0    0    -1  
+$EndComp
+$Comp
+L Device:R R4
+U 1 1 5F4D6CA5
+P 10150 6200
+F 0 "R4" H 10220 6246 50  0000 L CNN
+F 1 "60R" H 10220 6155 50  0000 L CNN
+F 2 "Resistor_SMD:R_0603_1608Metric" V 10080 6200 50  0001 C CNN
+F 3 "~" H 10150 6200 50  0001 C CNN
+	1    10150 6200
+	1    0    0    -1  
+$EndComp
+Text GLabel 9400 6400 2    50   Input ~ 0
+LEDA
+Text GLabel 10150 6400 2    50   Input ~ 0
+LEDB
+Wire Wire Line
+	9400 6400 9400 6350
+Wire Wire Line
+	10150 6400 10150 6350
+$Comp
+L power:GND #PWR0129
+U 1 1 5EC7AF0D
+P 8000 5350
+F 0 "#PWR0129" H 8000 5100 50  0001 C CNN
+F 1 "GND" H 8005 5177 50  0000 C CNN
+F 2 "" H 8000 5350 50  0001 C CNN
+F 3 "" H 8000 5350 50  0001 C CNN
+	1    8000 5350
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	7600 5450 7600 5600
+Wire Wire Line
+	7600 5600 7750 5600
+Wire Wire Line
+	850  5000 1200 5000
+Wire Wire Line
+	850  5000 850  4850
+Wire Wire Line
+	850  4750 950  4750
+$Comp
+L Connector_Generic:Conn_01x03 D3
+U 1 1 5F5899AE
+P 9650 5850
+F 0 "D3" H 9650 6050 50  0000 C CNN
+F 1 "Conn_01x03" V 9750 5850 50  0000 C CNN
+F 2 "RoomControl:DiodeHoles3" H 9650 5850 50  0001 C CNN
+F 3 "~" H 9650 5850 50  0001 C CNN
+	1    9650 5850
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	9400 5850 9400 6050
+Wire Wire Line
+	9350 5950 9350 5750
+Wire Wire Line
+	9350 5750 9450 5750
+Connection ~ 9350 5750
+Wire Wire Line
+	9450 5950 9350 5950
+Wire Wire Line
+	9400 5850 9450 5850
+$Comp
+L Connector_Generic:Conn_01x03 D4
+U 1 1 5F5932CB
+P 10400 5850
+F 0 "D4" H 10400 6050 50  0000 C CNN
+F 1 "Conn_01x03" V 10500 5850 50  0000 C CNN
+F 2 "RoomControl:DiodeHoles3" H 10400 5850 50  0001 C CNN
+F 3 "~" H 10400 5850 50  0001 C CNN
+	1    10400 5850
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	10100 5750 10100 5950
+Wire Wire Line
+	10100 5950 10200 5950
+Wire Wire Line
+	10200 5750 10100 5750
+Connection ~ 10100 5750
+Wire Wire Line
+	10200 5850 10150 5850
+Wire Wire Line
+	10150 5850 10150 6050
 $EndSCHEMATC

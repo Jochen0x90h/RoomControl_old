@@ -1,7 +1,7 @@
 (module Omron_G6SU-2 (layer F.Cu) (tedit 5EC043C1)
   (fp_text reference REF** (at 0 -3.05) (layer F.SilkS) (effects (font (size 1 1) (thickness 0.15))))
   (fp_text value Omron_G6SU-2 (at 0 -1.85) (layer F.Fab) (effects (font (size 1 1) (thickness 0.15))))
-  (descr "Relay Omron G6SU-2, see http://omronfs.omron.com/en_US/ecb/products/pdf/en-g6s.pdf")
+  (descr "Relay 2A (http://omronfs.omron.com/en_US/ecb/products/pdf/en-g6s.pdf)")
   (model {KISYS3DMOD}/Relay_THT.3dshapes/Relay_DPDT_Omron_G6S-2.wrl (at (xyz 0 0 0)) (scale (xyz 1 1 1)) (rotate (xyz 0 0 0)))
   (fp_line (start -3.65 0.41) (end -2.19 -1.05) (width 0.1) (layer F.Fab))
   (fp_line (start -2.19 -1.05) (end 3.65 -1.05) (width 0.1) (layer F.Fab))
