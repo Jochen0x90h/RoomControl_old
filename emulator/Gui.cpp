@@ -481,7 +481,7 @@ void Gui::light(bool power, int percentage) {
 
 	// set state
 	this->lightRender->setState(this->x, this->y, w, h);
-	float value = power ? (percentage + 10.0f) / 110.0f : 10.0f;
+	float value = ((power ? percentage : 0) + 30.0f) / 130.0f;
 	glUniform1f(this->lightValue, value);
 	glUniform1f(this->lightInnerValue, value);
 

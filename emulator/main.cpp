@@ -87,7 +87,7 @@ int main(int argc, const char **argv) {
 	std::cout << "sizeof(Device): " << sizeof(Device) << " byteSize(): " << deviceData[0].byteSize() << std::endl;
 */
 	// erase emulated flash
-	memset(const_cast<uint8_t*>(Flash::getAddress(0)), 0xff, Flash::PAGE_COUNT * Flash::PAGE_SIZE);
+	memset(const_cast<uint8_t*>(Flash::getAddress(0)), 0xff, FLASH_PAGE_COUNT * FLASH_PAGE_SIZE);
 
 	// read flash contents from file
 	std::ifstream is("flash.bin", std::ios::binary);
@@ -125,13 +125,23 @@ int main(int argc, const char **argv) {
 	// v-sync
 	glfwSwapInterval(1);
 
-	// the room control application
-	UpLink::Parameters upParameters;
-	DownLink::Parameters downParameters;
-	RoomControl roomControl(upParameters, downParameters);
-		
 	// emulator user interface
 	Gui gui;
+
+	boost::system::error_code ec;
+	asio::ip::address localhost = asio::ip::address::from_string("::1", ec);
+
+	UpLink::Parameters upParameters;
+	upParameters.local = asio::ip::udp::endpoint(asio::ip::udp::v6(), 1337);
+	upParameters.remote = asio::ip::udp::endpoint(localhost, 47193);
+
+	DownLink::Parameters downParameters;
+	downParameters.local = asio::ip::udp::endpoint(asio::ip::udp::v6(), 1338);
+
+	Lin::Parameters linParameters = {gui};
+
+	// the room control application
+	RoomControl roomControl(upParameters, downParameters, linParameters);
 
 	// main loop
 	int frameCount = 0;
@@ -169,16 +179,12 @@ int main(int argc, const char **argv) {
 			auto poti = gui.poti(id++);
 			roomControl.onPotiChanged(poti.first, poti.second);
 			
-			gui.newLine();
-			
-			// double rocker switch
-			gui.doubleRocker(id++);
-
+			// temperature sensor
 			gui.temperatureSensor(id++);
 
-			gui.light(true, 100);
-			
-			gui.blind(50);
+			gui.newLine();
+						
+			roomControl.doGui(id);
 		}
 		
 		// swap render buffer to screen
@@ -329,7 +335,7 @@ int main(int argc, const char **argv) {
 
 	// write flash
 	std::ofstream os("flash.bin", std::ios::binary);
-	os.write(reinterpret_cast<const char*>(Flash::getAddress(0)), Flash::PAGE_COUNT * Flash::PAGE_SIZE);
+	os.write(reinterpret_cast<const char*>(Flash::getAddress(0)), FLASH_PAGE_COUNT * FLASH_PAGE_SIZE);
 	os.close();
 
 	// cleanup

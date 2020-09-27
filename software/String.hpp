@@ -28,12 +28,22 @@ inline int getLength(char const *str, False) {
 }
 
 
+template<typename T>
+int length(T &str) {
+	return getLength(str, IsArray<T>());
+}
+
+
 /**
  * String, only references the data
  */
 struct String {
 	char const *data;
 	int const length;
+
+	String()
+		: data(), length(0)
+	{}
 
 	String(String &str)
 		: data(str.data), length(str.length)
@@ -68,4 +78,16 @@ struct String {
 	char const *end() const {return this->data + this->length;}
 };
 
-//String string(char const *str);
+/**
+ * Assign a string to a fixed size c-string
+ */
+template <int N>
+inline void assign(char (&str)[N], String s) {
+	int count = N < s.length ? N : s.length;
+	for (int i = 0; i < count; ++i) {
+		str[i] = s[i];
+	}
+	for (int i = count; i < N; ++i) {
+		str[i] = 0;
+	}
+}

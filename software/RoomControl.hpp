@@ -1,11 +1,13 @@
 #pragma once
 
 #include "MqttSnBroker.hpp"
+#include "Lin.hpp"
 #include "Clock.hpp"
 #include "Display.hpp"
 #include "Poti.hpp"
 #include "Bitmap.hpp"
 #include "StringBuffer.hpp"
+#include "Storage.hpp"
 #include <iostream>
 
 inline std::ostream &operator << (std::ostream &s, String const &str) {
@@ -16,11 +18,16 @@ inline std::ostream &operator << (std::ostream &s, String const &str) {
 /**
  * Main room control class that inherits platform dependent (hardware or emulator) components
  */
-class RoomControl : public MqttSnBroker, public Clock, public Display, public Poti {
+class RoomControl : public MqttSnBroker, public Lin, public Clock, public Display, public Poti {
 public:
 
-	RoomControl(UpLink::Parameters const &upParameters, DownLink::Parameters downParameters)
-		: MqttSnBroker(upParameters, downParameters) {}
+	RoomControl(UpLink::Parameters const &upParameters, DownLink::Parameters downParameters,
+		Lin::Parameters linParameters)
+		: MqttSnBroker(upParameters, downParameters), Lin(linParameters)
+		, storage(0, FLASH_PAGE_COUNT, localDevices)
+		
+	{
+	}
 
 	~RoomControl() override;
 
@@ -28,76 +35,43 @@ public:
 // UpLink
 // ------
 	
-	void onUpConnected() override {
-		connect("MyClient");
-	}
+	void onUpConnected() override;
 
 
 // MqttSnClient
 // ------------
 
-	uint16_t foo;
-
-	void onConnected() override {
-		std::cout << "onConnected" << std::endl;
-
-		// register a topic name to obtain a topic id
-		this->foo = registerTopic("foo").topicId;
-	}
+	void onConnected() override;
 	
-	void onDisconnected() override {
+	void onDisconnected() override;
 	
-	}
+	void onSleep() override;
 	
-	void onSleep() override {
+	void onWakeup() override;
 	
-	}
+	void onError(int error, mqttsn::MessageType messageType) override;
 	
-	void onWakeup() override {
-	
-	}
-	
-	void onError(int error, mqttsn::MessageType messageType) override {
-	
-	}
-/*
-	void onRegistered(uint16_t msgId, String topicName, uint16_t topicId) override {
-		MqttSnBroker::onRegistered(msgId, topicName, topicId);
-		
-		std::cout << "onRegistered " << topicName << ' ' << topicId << std::endl;
-		this->stateId = topicId;
-
-		// subscribe to command topic
-		subscribeTopic("cmd");
-	}
-*/
 
 // MqttSnBroker
 // ------------
 
-	void onPublished(uint16_t topicId, uint8_t const *data, int length, int8_t qos, bool retain) override {
-		std::string s((char const*)data, length);
-		std::cout << "onPublished " << topicId << " data " << s << " retain " << retain << " qos " << int(qos) << std::endl;
-	}
-/*
-	void onSubscribed(uint16_t msgId, String topicName, uint16_t topicId, int8_t qos) override {
-		MqttSnBroker::onSubscribed(msgId, topicName, topicId, qos);
-		
-		std::cout << "onSubscribed " << topicName << ' ' << topicId << ' ' << int(qos) << std::endl;
-		this->commandId = topicId;
+	void onPublished(uint16_t topicId, uint8_t const *data, int length, int8_t qos, bool retain) override;
+	
 
-		// publish a message on the state topic
-		publish(this->stateId, "foo", 1);
-	}
-*/
+// Lin
+// ---
+
+	void onLinReady() override;
+
+	void onLinReceived(uint32_t deviceId, uint8_t const *data, int length) override;
+
+	void onLinSent() override;
 
 	
 // SystemTimer
 // -----------
 		
-	void onSystemTimeout3(SystemTime time) override {
-	
-	}
+	void onSystemTimeout3(SystemTime time) override;
 
 
 // Clock
@@ -128,6 +102,10 @@ public:
 	enum State {
 		IDLE,
 		MAIN,
+		
+		// local devices connected by lin bus
+		LOCAL_DEVICES,
+		
 		
 		// events
 		EVENTS,
@@ -228,4 +206,75 @@ public:
 	
 	// temporary string buffer
 	StringBuffer<32> buffer;
+
+
+// Devices
+// -------
+	
+	struct LocalDevice {
+		Lin::Device device;
+	
+		/**
+		 * Returns the size in bytes needed to store the device configuration in flash
+		 * @return size in bytes
+		 */
+		int flashSize() const;
+
+		/**
+		 * Returns the size in bytes needed to store the device state in ram
+		 * @return size in bytes
+		 */
+		int ramSize() const;
+		
+		/**
+		 * Returns the name of the device
+		 * @return device name
+		 */
+		String getName() const;
+		
+		/**
+		 * Set the name of the device
+		 * @paran name device name
+		 */
+		void setName(String name);
+	};
+	
+	struct Switch2Device : public LocalDevice {
+	
+		// timeoutX;
+		// timeoutY;
+		
+		// device name
+		char name[16];
+	};
+	
+	struct Switch2DeviceState {
+		// topic id for rocker a
+		uint16_t a;
+		
+		// topic id for rocker b
+		uint16_t b;
+		
+		// topic id for relays x
+		uint16_t x;
+		
+		// topic id for relays y
+		uint16_t y;
+		
+		uint8_t switches;
+		uint8_t relays;
+		// timeX;
+		// timeY;
+	};
+	
+	void subscribeDevices();
+	
+	Storage storage;
+	Storage::Array<LocalDevice, void> localDevices;
+	using LocalDeviceElement = Storage::Element<LocalDevice, void>;
+	union {
+		LocalDevice localDevice;
+		Switch2Device switch2Device;
+	} temp;
+	
 };

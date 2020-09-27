@@ -3,7 +3,6 @@
 #include "UpLink.hpp"
 #include "SystemTimer.hpp"
 #include "String.hpp"
-//#include "MQTTSNPacket.h"
 
 // MQTT-SN helper functions
 

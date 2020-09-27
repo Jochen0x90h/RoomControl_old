@@ -12,9 +12,148 @@ static const char weekdaysShort[7][4] = {"M", "T", "W", "T", "F", "S", "S"};
 RoomControl::~RoomControl() {
 }
 
+// UpLink
+// ------
+
+void RoomControl::onUpConnected() {
+	connect("MyClient");
+}
+
 
 // MqttSnClient
 // ------------
+
+void RoomControl::onConnected() {
+	std::cout << "onConnected" << std::endl;
+
+	// register a topic name to obtain a topic id
+	//registerTopic("foo").topicId;
+	subscribeDevices();
+}
+
+void RoomControl::onDisconnected() {
+
+}
+
+void RoomControl::onSleep() {
+
+}
+
+void RoomControl::onWakeup() {
+
+}
+
+void RoomControl::onError(int error, mqttsn::MessageType messageType) {
+
+}
+
+
+// MqttSnBroker
+// ------------
+
+void RoomControl::onPublished(uint16_t topicId, uint8_t const *data, int length, int8_t qos, bool retain) {
+	std::string s((char const*)data, length);
+	std::cout << "onPublished " << topicId << " data " << s << " retain " << retain << " qos " << int(qos) << std::endl;
+
+	// check if this is a command
+	if (retain || length == 0)
+		return;
+		
+	// iterate over local devices
+	for (LocalDeviceElement e : this->localDevices) {
+		switch (e.flash->device.type) {
+		case Lin::Device::SWITCH2:
+			{
+				Switch2DeviceState *state = reinterpret_cast<Switch2DeviceState *>(e.ram);
+
+				if (topicId == state->x || topicId == state->y) {
+					// get command
+					bool release = data[0] == '#';
+					bool on = data[0] == '1' || data[0] == '+';
+					bool off = data[0] == '0' || data[0] == '-';
+					
+					uint8_t relays = state->relays;
+					if (topicId == state->x) {
+						if (on || off)
+							relays = (relays & ~0x01) | (on ? 0x01 : 0);
+					} else if (topicId == state->y) {
+						if (on || off)
+							relays = (relays & ~0x04) | (on ? 0x04 : 0);
+					}
+					if (relays != state->relays) {
+						state->relays = relays;
+						linSend(e.flash->device.id, &relays, 1);
+					}
+				}
+			}
+			break;
+		}
+	}
+}
+
+
+// Lin
+// ---
+
+void RoomControl::onLinReady() {
+	// iterate over lin devices and check if they are in the list of local devices
+	Array<Lin::Device> linDevices = getLinDevices();
+	for (Lin::Device const &linDevice : linDevices) {
+		// check if device exists
+		bool found = false;
+		for (LocalDeviceElement e : this->localDevices) {
+			if (e.flash->device.id == linDevice.id) {
+				found = true;
+				break;
+			}
+		}
+		
+		// add new device if not found
+		if (!found) {
+			// set device id and type
+			this->temp.localDevice.device = linDevice;
+
+			// initialize name with hex id
+			this->buffer.clear();
+			this->buffer << hex(linDevice.id);
+			this->temp.localDevice.setName(this->buffer);
+			
+			// add new device
+			int index = this->localDevices.size();
+			this->localDevices.write(index, &this->temp.switch2Device);
+		}
+	}
+}
+
+void RoomControl::onLinReceived(uint32_t deviceId, uint8_t const *data, int length) {
+	for (LocalDeviceElement e : this->localDevices) {
+		if (e.flash->device.id == deviceId) {
+			switch (e.flash->device.type) {
+			case Lin::Device::SWITCH2:
+				{
+					uint8_t const commands[] = "#+-";
+					Switch2DeviceState *state = reinterpret_cast<Switch2DeviceState *>(e.ram);
+					
+					publish(state->a, &commands[data[0] & 3], 1, 1);
+					publish(state->b, &commands[(data[0] >> 2) & 3], 1, 1);
+				}
+				break;
+			}
+		}
+	}
+}
+
+void RoomControl::onLinSent() {
+
+}
+
+	
+// SystemTimer
+// -----------
+		
+void RoomControl::onSystemTimeout3(SystemTime time) {
+
+}
 
 
 // Clock
@@ -98,6 +237,7 @@ void RoomControl::updateMenu(int delta, bool activated) {
 			this->buffer = decimal(targetTemperature >> 1), (targetTemperature & 1) ? ".5" : ".0" , " oC";
 			bitmap.drawText(70, 30, tahoma_8pt, this->buffer, 1);
 */
+			// enter menu if poti-switch was pressed
 			if (activated) {
 				this->activated = true;
 				this->stack[0] = {MAIN, 0, 0, 0};
@@ -106,17 +246,56 @@ void RoomControl::updateMenu(int delta, bool activated) {
 		break;
 	case MAIN:
 		menu(delta, activated);
-		if (entry("Switches"))
+
+		if (entry("Local Devices"))
+			push(LOCAL_DEVICES);
+
+		/*if (entry("Switches"))
 			push(EVENTS);
 		if (entry("Timers"))
 			push(TIMERS);
 		if (entry("Scenarios"))
 			push(SCENARIOS);
 		if (entry("Devices"))
-			push(DEVICES);
+			push(DEVICES);*/
 		if (entry("Exit")) {
 			this->activated = false;
 			this->state = IDLE;
+		}
+		break;
+
+	case LOCAL_DEVICES:
+		{
+			// list devices
+			menu(delta, activated);
+			int deviceCount = this->localDevices.size();
+			for (int i = 0; i < deviceCount; ++i) {
+				LocalDeviceElement e = this->localDevices[i];
+				/*DeviceState &deviceState = this->deviceStates[i];
+				this->buffer = device.name, ": ";
+				addDeviceStateToString(device, deviceState);
+				if (entry(this->buffer)) {
+					// edit device
+					this->u.device = devices[this->selected];
+					this->actions = &this->u.device.actions;
+					push(EDIT_DEVICE);
+				}*/
+			}
+			/*if (deviceCount < DEVICE_COUNT && this->storage.hasSpace(1, offsetof(Device, actions.actions[8]))) {
+				if (entry("Add Device")) {
+					this->u.device.id = newDeviceId();
+					this->u.device.type = Device::Type::SWITCH;
+					copy("New Device", this->u.device.name);
+					this->u.device.value1 = 0;
+					this->u.device.value2 = 0;
+					this->u.device.output = 0;
+					this->u.device.actions.clear();
+					this->actions = &this->u.device.actions;
+					push(ADD_DEVICE);
+				}
+			}*/
+			if (entry("Exit"))
+				pop();
 		}
 		break;
 /*
@@ -752,4 +931,91 @@ void RoomControl::push(State state) {
 
 void RoomControl::pop() {
 	--this->stackIndex;
+}
+
+
+// Devices
+// -------
+
+int RoomControl::LocalDevice::flashSize() const {
+	switch (this->device.type) {
+	case Lin::Device::SWITCH2:
+		{
+			Switch2Device const *device = reinterpret_cast<Switch2Device const *>(this);
+			
+			int length = size(device->name);
+			for (int i = 0; i < size(device->name); ++i) {
+				if (device->name[i] == 0) {
+					length = i + 1;
+					break;
+				}
+			}
+			
+			return offsetof(Switch2Device, name) + length;
+		}
+	}
+}
+
+int RoomControl::LocalDevice::ramSize() const {
+	switch (this->device.type) {
+	case Lin::Device::SWITCH2:
+		return sizeof(Switch2DeviceState);
+	}
+}
+
+String RoomControl::LocalDevice::getName() const {
+	switch (this->device.type) {
+	case Lin::Device::SWITCH2:
+		return String(reinterpret_cast<Switch2Device const *>(this)->name);
+	}
+}
+
+void RoomControl::LocalDevice::setName(String name) {
+	switch (this->device.type) {
+	case Lin::Device::SWITCH2:
+		assign(reinterpret_cast<Switch2Device *>(this)->name, name);
+		break;
+	}
+}
+
+// todo don't register all topics in one go, message buffer may overflow
+void RoomControl::subscribeDevices() {
+	// prifix of mqtt topic
+	this->buffer.clear();
+	this->buffer << "huasi/";
+	int prefixLength = this->buffer.length();
+	
+	// register topics for devices
+	for (LocalDeviceElement e : this->localDevices) {
+		// append device name to topic
+		this->buffer.setLength(prefixLength);
+		this->buffer << e.flash->getName() << '/';
+		int deviceLength = this->buffer.length();
+
+		switch (e.flash->device.type) {
+		case Lin::Device::SWITCH2:
+			{
+				Switch2DeviceState *state = reinterpret_cast<Switch2DeviceState *>(e.ram);
+				
+				this->buffer.setLength(deviceLength);
+				this->buffer << "a";
+				state->a = registerTopic(this->buffer).topicId;
+
+				this->buffer.setLength(deviceLength);
+				this->buffer << "b";
+				state->b = registerTopic(this->buffer).topicId;
+			
+				this->buffer.setLength(deviceLength);
+				this->buffer << "x";
+				state->x = subscribeTopic(this->buffer).topicId;
+
+				this->buffer.setLength(deviceLength);
+				this->buffer << "y";
+				state->y = subscribeTopic(this->buffer).topicId;
+			}
+			break;
+		}
+	}
+
+	this->buffer.clear();
 }

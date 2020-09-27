@@ -4,15 +4,19 @@
 #include "Flash.hpp"
 #include <stdint.h>
 
-
+/**
+ * Flash based storage of multiple arrays of elements with variable size
+ */
 class Storage {
 public:
+
+	static constexpr int MAX_ELEMENT_COUNT = 256;
 
 	/**
 	 * Constructor
 	 * @param pageStart first flash page to use
-	 * @pageCount number of flash pages to use
-	 * @arrays arrays that use this flash storage
+	 * @param pageCount number of flash pages to use
+	 * @param arrays arrays that aremanaged by this flash storage
 	 */
 	template <typename... Arrays>
 	Storage(uint8_t pageStart, uint8_t pageCount, Arrays&... arrays) {
@@ -27,20 +31,32 @@ public:
 
 	/**
 	 * Return true if there is space available for the requested size
+	 * @param elementCount
+	 * @param byteSize
 	 */
-	bool hasSpace(int elementCount, int byteSize) const;
+	//bool hasSpace(int elementCount, int byteSize) const;
 
-	void switchFlashRegions();
+
+	static constexpr int flashAlign(int size) {
+		// use at least 4 so that 32 bit types such as int are 4 byte aligned
+		int const align = FLASH_WRITE_ALIGN < 4 ? 4 : FLASH_WRITE_ALIGN;
+		return (size + align - 1) & ~(align - 1);
+	}
+
+	static constexpr int ramAlign(int size) {
+		return (size + 3) >> 2;
+	}
 
 protected:
 
 	enum class Op : uint8_t {
-		OVERWRITE,
-		ERASE,
-		MOVE
+		OVERWRITE = 0,
+		ERASE = 1,
+		MOVE = 2,
+		INVALID = 0xff
 	};
 	
-	struct Header {
+	struct FlashHeader {
 		// index of array to modify
 		uint8_t arrayIndex;
 				
@@ -55,8 +71,9 @@ protected:
 		// operation (is last so that it can be used to check if the header was fully written to flash)
 		Op op;
 	};
-	static_assert(sizeof(Header) == 4);
-	static const int HEADER_SIZE = sizeof(Header);
+	
+	// size of FlashHeader should be 4
+	static_assert(sizeof(FlashHeader) == 4);
 	
 	struct ArrayData {
 		Storage *storage;
@@ -74,46 +91,67 @@ protected:
 		uint8_t count;
 		
 		// function to determine the size of an element
-		int (*byteSize)(const void *element);
-		
+		int (*flashSize)(void const *flashElement);
+		int (*ramSize)(void const *flashElement);
+
 		// elements
-		const void **elements;
+		void const **flashElements;
+		uint32_t **ramElements;
 
 		void enlarge(int count);
 		void shrink(int count);
-		void write(int index, const void *element);
+		void write(int index, void const *flashElement, void const *ramElement);
 		void erase(int index);
 		void move(int oldIndex, int newIndex);
 	};
 
 public:
 
-	template <typename E>
-	struct Iterator {
-		const E *const *p;
-		void operator ++() {++this->p;}
-		const E &operator *() const {return **this->p;}
-		bool operator !=(Iterator it) {return it.p != this->p;}
+	template <typename F, typename R>
+	struct Element {
+		F const *flash;
+		R *ram;
 	};
 
-	template <typename E>
+	template <typename F, typename R>
+	struct Iterator {
+		void const *const *f;
+		uint32_t **r;
+		void operator ++() {++this->f; ++this->r;}
+		Element<F, R> operator *() const {return {reinterpret_cast<F const *>(*this->f), reinterpret_cast<R *>(*this->r)};}
+		bool operator !=(Iterator it) {return it.f != this->f;}
+	};
+
+	/**
+	 * Array of elements that is managed by the Storage class
+	 * @tparam F structure that is stored in flash, needs a size() const method returning size in bytes
+	 * @tparam R structure that is stored in ram, needs a size(F const &) const method returning size in bytes
+	 */
+	template <typename F, typename R>
 	class Array {
 	public:
-		using ELEMENT = E;
+		using FLASH = F;
+		using RAM = R;
 
 		int size() const {
 			return this->data.count;
 		}
 				
-		const ELEMENT &operator[](int index) const {
+		Element<F, R> operator[](int index) const {
 			assert(index >= 0 && index < this->data.count);
-			const ELEMENT **e = reinterpret_cast<const ELEMENT**>(this->data.elements);
-			return *e[index];
+			const FLASH *f = reinterpret_cast<const FLASH*>(this->data.flashElements[index]);
+			RAM *r = reinterpret_cast<RAM*>(this->data.ramElements[index]);
+			return {f, r};
 		}
 
-		void write(int index, const ELEMENT &element) {
+		void write(int index, FLASH const *flashElement) {
 			assert(index >= 0 && index <= this->data.count);
-			this->data.write(index, &element);
+			this->data.write(index, flashElement, nullptr);
+		}
+
+		void write(int index, FLASH const *flashElement, RAM *ramElement) {
+			assert(index >= 0 && index <= this->data.count);
+			this->data.write(index, flashElement, ramElement);
 		}
 
 		void erase(int index) {
@@ -122,8 +160,9 @@ public:
 		}
 		
 		/**
-		 * Move an element to an old index to a new index and move all elements in between to fill the old index and free
-		 * the new index
+		 * Move an element from an old index to a new index and move all elements in between by one index
+		 * @param index index of element to move
+		 * @param newIndex new index of the element
 		 */
 		void move(int index, int newIndex) {
 			assert(index >= 0 && index < this->data.count);
@@ -131,16 +170,14 @@ public:
 			this->data.move(index, newIndex);
 		}
 		
-		Iterator<ELEMENT> begin() const {
-			const ELEMENT **elements = reinterpret_cast<const ELEMENT**>(this->data.elements);
-			return {elements};
+		Iterator<F, R> begin() const {
+			return {this->data.flashElements, this->data.ramElements};
 			
 		}
-		Iterator<ELEMENT> end() const {
-			const ELEMENT **elements = reinterpret_cast<const ELEMENT**>(this->data.elements);
-			return {elements + this->data.count};
+		Iterator<F, R> end() const {
+			return {this->data.flashElements + this->data.count, this->data.ramElements + this->data.count};
 		}
-
+/*
 		// only for emulator to set initial configuration
 		template <int N>
 		void assign(const ELEMENT (&elements)[N]) {
@@ -151,74 +188,101 @@ public:
 			this->data.enlarge(N);
 			
 			// write header
-			Header header = {this->data.index, uint8_t(0), uint8_t(N), Op::OVERWRITE};
-			storage->it = Flash::write(storage->it, &header, 1);
+			FlashHeader header = {this->data.index, uint8_t(0), uint8_t(N), Op::OVERWRITE};
+			Flash::write(storage->it, &header, sizeof(Header));
+			storage->it += align(sizeof(Header));
 			
 			// write elements to flash
 			for (int i = 0; i < N; ++i) {
 				const void *element = &elements[i];
 				
 				// update used memory size
-				int elementSize = this->data.byteSize(element);
+				int elementSize = this->data.size(element);
 				storage->elementsSize += elementSize;
 
 				// set element in flash
 				this->data.elements[i] = storage->it;
 
 				// write element to flash
-				storage->it = Flash::write(storage->it, element, elementSize);
+				Flash::write(storage->it, element, elementSize);
+				storage->it += align(elementSize);
 			}
 		}
-
+*/
 		ArrayData data;
 	};
 		
 protected:
 	
-	template <typename E>
-	static int byteSize(const void *element) {
-		return reinterpret_cast<const E*>(element)->byteSize();
+	// get flash element size
+	template <typename F>
+	static int flashSize(const void *flashElement) {
+		return reinterpret_cast<const F*>(flashElement)->flashSize();
 	}
 
+   // get ram element size
+   template <typename F>
+   static int ramSize(const void *flashElement) {
+	   return reinterpret_cast<const F*>(flashElement)->ramSize();
+   }
+
+	// add array to be managed by this storage
 	template <typename T>
 	void add(T &array) {
-		static_assert(sizeof(typename T::ELEMENT) < 1024);
+		static_assert(sizeof(typename T::FLASH) <= FLASH_PAGE_SIZE - flashAlign(sizeof(FlashHeader)));
 		
 		array.data.storage = this;
 		array.data.next = this->first;
 		this->first = &array.data;
 		array.data.index = this->arrayCount++;
 		array.data.count = 0;
-		array.data.byteSize = &byteSize<typename T::ELEMENT>;
-		array.data.elements = this->elements;
+		array.data.flashSize = &flashSize<typename T::FLASH>;
+		array.data.ramSize = &ramSize<typename T::FLASH>;
+		array.data.flashElements = this->flashElements;
+		array.data.ramElements = this->ramElements;
 	}
 
+	// add multiple arrays to be managed by this storage
 	template <typename T, typename... Arrays>
 	void add(T &array, Arrays&... arrays) {
 		add(array);
 		add(arrays...);
 	}
 
+	// initialize Storage
 	void init();
+
+	void switchFlashRegions();
+
+	void ramInsert(uint32_t **ramElement, int sizeChange);
 	
 	// configuration
 	uint8_t pageStart;
 	uint8_t pageCount;
 	uint8_t arrayCount = 0;
 	
-	// flash pointers
-	const uint8_t *it;
-	const uint8_t *end;
-	
-	// list of arrays
+	// linked list of arrays
 	ArrayData *first = nullptr;
+
+	// total number of elements in all arrays
+	int elementCount = 0;
+
+
+	// flash pointers
+	uint8_t const *it;
+	uint8_t const *end;
 	
 	// space for array elements of all arrays
-	const void *elements[256];
+	void const *flashElements[MAX_ELEMENT_COUNT];
 	
-	// total number of elements
-	int elementCount = 0;
 	
 	// accumulated size of all elements in 4 byte units
-	int elementsSize = 0;
+	int flashElementsSize = 0;
+
+
+	// space for array elements of all arrays followed by an "end"-pointer
+	uint32_t *ramElements[MAX_ELEMENT_COUNT + 1];
+
+	uint32_t ram[16384];
+
 };

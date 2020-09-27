@@ -31,6 +31,7 @@ source_group(glad FILES ${GLAD})
 
 # CLion: Software directory is in External Libraries -> Header Search Paths -> Software
 set(SOFTWARE
+	../software/util.hpp
 	../software/Array.hpp
 	../software/Bitmap.cpp
 	../software/Bitmap.hpp
@@ -47,9 +48,8 @@ set(SOFTWARE
 	../software/StringBuffer.hpp
 	../software/tahoma_8pt.cpp
 	../software/tahoma_8pt.hpp
-	#../software/util.hpp
-	#../software/Storage.cpp
-	#../software/Storage.hpp
+	../software/Storage.cpp
+	../software/Storage.hpp
 	#../software/Clock.hpp
 	#../software/EnOceanProtocol.cpp
 	#../software/EnOceanProtocol.hpp
@@ -83,6 +83,8 @@ set(EMULATOR
 	UpLink.hpp
 	DownLink.cpp
 	DownLink.hpp
+	Lin.cpp
+	Lin.hpp
 	Display.cpp
 	Display.hpp
 	Inputs.cpp

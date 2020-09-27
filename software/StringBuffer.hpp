@@ -125,6 +125,7 @@ public:
 	
 	bool empty() {return this->index == 0;}
 	int length() {return this->index;}
+	void setLength(int length) {this->index = length;}
 
 protected:
 	char buffer[L + 1];

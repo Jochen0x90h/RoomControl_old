@@ -1,10 +1,7 @@
 #include "MqttSnBroker.hpp"
+#include "util.hpp"
 #include <cassert>
 
-
-inline int8_t min(int8_t a, int8_t b) {
-	return a < b ? a : b;
-}
 
 
 MqttSnBroker::MqttSnBroker(UpLink::Parameters const &upParameters, DownLink::Parameters const &downParameters)

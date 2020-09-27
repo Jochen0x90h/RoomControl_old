@@ -47,6 +47,8 @@ public:
 
 	/**
 	 * Add a light
+	 * @param power power on/off
+	 * @param percentage brightness percentage
 	 */
 	void light(bool power, int percentage = 100);
 

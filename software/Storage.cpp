@@ -6,44 +6,92 @@
 // Storage::ArrayData
 
 void Storage::ArrayData::enlarge(int count) {
+	// update number of elements of this array and of all arrays
 	this->count += count;
-	
-	// find range of elements of following arrays to move
-	const void **begin = this->elements + this->count;
-	const void **it = begin;
-	ArrayData *arrayData = this;
-	while ((arrayData = arrayData->next) != nullptr) {
-		arrayData->elements = it;
-		it += arrayData->count;
-	}
-	
-	// move elements of following arrays
-	while (it != begin) {
-		--it;
-		it[0] = it[-count];
-	}
-	
 	this->storage->elementCount += count;
+
+	// flash
+	{
+		// find range of flash elements of following arrays to move
+		void const **begin = this->flashElements + this->count;
+		void const **it = begin;
+		ArrayData *arrayData = this;
+		while ((arrayData = arrayData->next) != nullptr) {
+			arrayData->flashElements = it;
+			it += arrayData->count;
+		}
+		
+		// move flash elements of following arrays
+		while (it != begin) {
+			--it;
+			it[0] = it[-count];
+		}
+	}
+	
+	// ram
+	{
+		// find range of ram elements of following arrays to move
+		uint32_t **begin = this->ramElements + this->count;
+		uint32_t **it = begin;
+		ArrayData *arrayData = this;
+		while ((arrayData = arrayData->next) != nullptr) {
+			arrayData->ramElements = it;
+			it += arrayData->count;
+		}
+		
+		// set "end" pointer behind last element pointer
+		it[0] = it[-count];
+
+		// move ram elements of following arrays
+		while (it != begin) {
+			--it;
+			it[0] = it[-count];
+		}
+	}
 }
 
 void Storage::ArrayData::shrink(int count) {
-	this->count -= count;
+	// flash
+	{
+		// find range of flash elements of following arrays to move
+		void const **end = this->flashElements + this->count;
+		void const **it = end;
+		ArrayData *arrayData = this;
+		while ((arrayData = arrayData->next) != nullptr) {
+			arrayData->flashElements = end;
+			end += arrayData->count;
+		}
+		
+		// move elements of following arrays
+		while (it != end) {
+			it[-count] = it[0];
+			++it;
+		}
+	}
+	
+	// ram
+	{
+		// find range of flash elements of following arrays to move
+		uint32_t **end = this->ramElements + this->count;
+		uint32_t **it = end;
+		ArrayData *arrayData = this;
+		while ((arrayData = arrayData->next) != nullptr) {
+			arrayData->ramElements = end;
+			end += arrayData->count;
+		}
+		
+		// move elements of following arrays
+		while (it != end) {
+			it[-count] = it[0];
+			++it;
+		}
 
-	// find range of elements of following arrays to move
-	const void **end = this->elements + this->count;
-	const void **it = end;
-	ArrayData *arrayData = this;
-	while ((arrayData = arrayData->next) != nullptr) {
-		arrayData->elements = end;
-		end += arrayData->count;
+		// set "end" pointer behind last element pointer
+		it[-count] = it[0];
 	}
 	
-	// move elements of following arrays
-	while (it != end) {
-		it[0] = it[count];
-		++it;
-	}
-	
+	// update number of elements of this array and of all arrays
+	this->count -= count;
 	this->storage->elementCount -= count;
 }
 /*
@@ -79,88 +127,157 @@ void Storage::ArrayData::write(int op, int index, int value) {
 	}
 }
 */
-void Storage::ArrayData::write(int index, const void *element) {
+void Storage::ArrayData::write(int index, void const *flashElement, void const* ramElement) {
 	Storage *storage = this->storage;
-	
+
+	// element sizes
+	int flashElementSize = this->flashSize(flashElement);
+	int alignedFlashHeaderSize = flashAlign(sizeof(FlashHeader));
+	int alignedFlashElementSize = flashAlign(flashElementSize);
+	storage->flashElementsSize += flashElementSize;
+
+	int ramElementSize = this->ramSize(flashElement);
+	int ramSizeChange = ramAlign(ramElementSize);
+
 	// automatically enlarge by one if write at end
 	if (index == this->count) {
 		enlarge(1);
 	} else {
-		// update used memory size
-		storage->elementsSize -= this->byteSize(this->elements[index]);
+		// subtract size of old element
+		storage->flashElementsSize -= this->flashSize(this->flashElements[index]);
+		ramSizeChange -= ramAlign(this->ramSize(this->flashElements[index]));
 	}
-		
-	// update used memory size
-	int elementSize = this->byteSize(element);
-	storage->elementsSize += elementSize;
 
-	// check if there is enough space
-	if (storage->it + elementSize <= storage->end) {
+	// check if there is enough flash space
+	if (storage->it + alignedFlashHeaderSize + alignedFlashElementSize <= storage->end) {
 		// write header to flash
-		Header header = {this->index, uint8_t(index), uint8_t(1), Op::OVERWRITE};
-		storage->it = Flash::write(storage->it, &header, HEADER_SIZE);
+		FlashHeader flashHeader = {this->index, uint8_t(index), uint8_t(1), Op::OVERWRITE};
+		Flash::write(storage->it, &flashHeader, sizeof(FlashHeader));
+		storage->it += alignedFlashHeaderSize;
 		
 		// set element in flash
-		this->elements[index] = storage->it;
+		this->flashElements[index] = storage->it;
 
 		// write element to flash
-		storage->it = Flash::write(storage->it, element, elementSize);
+		Flash::write(storage->it, flashElement, flashElementSize);
+		storage->it += alignedFlashElementSize;
 	} else {
 		// set element, gets copied to flash in switchFlashRegions()
-		this->elements[index] = element;
+		this->flashElements[index] = flashElement;
 		
 		// defragment flash
 		storage->switchFlashRegions();
+	}
+	
+	// reallocate ram
+	storage->ramInsert(this->ramElements + index, ramSizeChange);
+
+	// write ram element
+	uint8_t *dst = reinterpret_cast<uint8_t*>(this->ramElements[index]);
+	if (ramElement != nullptr) {
+		uint8_t const *src = reinterpret_cast<uint8_t const*>(ramElement);
+		for (int i = 0; i < ramElementSize; ++i) {
+			dst[i] = src[i];
+		}
+	} else {
+		for (int i = 0; i < ramElementSize; ++i) {
+			dst[i] = 0;
+		}
 	}
 }
 
 void Storage::ArrayData::erase(int index) {
 	Storage *storage = this->storage;
-	
-	// update used memory size
-	storage->elementsSize -= this->byteSize(this->elements[index]);
+
+	void const **f = this->flashElements;
+	uint32_t **r = this->ramElements;
+
+	// element sizes
+	int alignedFlashHeaderSize = flashAlign(sizeof(FlashHeader));
+	storage->flashElementsSize -= this->flashSize(f[index]);
+	int alignedRamElementSize = r[index + 1] - r[index];
 
 	// erase element
 	for (int i = index; i < this->count - 1; ++i) {
-		this->elements[i] = this->elements[i + 1];
+		f[i] = f[i + 1];
+		r[i] = r[i + 1];
 	}
 
 	// shrink allocated size of this array by one
 	shrink(1);
 
-	// check if there is enough space for a header
-	if (storage->it + HEADER_SIZE <= storage->end) {
+	// check if there is enough flash space for a header
+	if (storage->it + alignedFlashHeaderSize <= storage->end) {
 		// write header to flash
-		Header header = {this->index, uint8_t(index), uint8_t(1), Op::ERASE};
-		storage->it = Flash::write(storage->it, &header, HEADER_SIZE);
+		FlashHeader header = {this->index, uint8_t(index), uint8_t(1), Op::ERASE};
+		Flash::write(storage->it, &header, sizeof(FlashHeader));
+		storage->it += alignedFlashHeaderSize;
 	} else {
 		// defragment flash
 		storage->switchFlashRegions();
 	}
+	
+	// move ram
+	storage->ramInsert(r + index, -alignedRamElementSize);
 }
 
 void Storage::ArrayData::move(int index, int newIndex) {
+	if (index == newIndex)
+		return;
+		
 	Storage *storage = this->storage;
+	
+	void const **f = this->flashElements;
+	void const *flashElement = f[index];
+	
+	uint32_t **r = this->ramElements;
+	uint32_t *ramElement = r[index];
+	uint32_t *nextRamElement = r[index + 1];
 
-	// move element
-	const void **e = this->elements;
-	const void *element = e[index];
-	if (index < newIndex) {
-		for (int i = index; i < newIndex; ++i) {
-			e[i] = e[i + 1];
+	// element sizes
+	int alignedFlashHeaderSize = flashAlign(sizeof(FlashHeader));
+	int alignedRamElementSize = nextRamElement - ramElement;
+
+	// move element to new index and elements in between by one
+	if (newIndex > index) {
+		// move ram (to lower addresses)
+		uint32_t *src = nextRamElement;
+		uint32_t *dst = ramElement;
+		uint32_t *end = r[newIndex + 1];
+		while (src != end) {
+			*dst = *src;
+			++src, ++dst;
 		}
+
+		for (int i = index; i < newIndex; ++i) {
+			f[i] = f[i + 1];
+			r[i] = r[i + 1] - alignedRamElementSize;
+		}
+		r[newIndex] = r[newIndex + 1] - alignedRamElementSize;
+
 	} else {
+		// move ram (to higher addresses)
+		uint32_t *src = ramElement;
+		uint32_t *dst = nextRamElement;
+		uint32_t *begin = this->ramElements[newIndex];
+		while (src != begin) {
+			--src, --dst;
+			*dst = *src;
+		}
+		
 		for (int i = index; i > newIndex; --i) {
-			e[i] = e[i - 1];
+			f[i] = f[i - 1];
+			r[i] = r[i - 1] + alignedRamElementSize;
 		}
 	}
-	e[newIndex] = element;
+	f[newIndex] = flashElement;
 
 	// check if there is enough space for a header
-	if (storage->it + HEADER_SIZE <= storage->end) {
+	if (storage->it + alignedFlashHeaderSize <= storage->end) {
 		// write header to flash
-		Header header = {this->index, uint8_t(index), uint8_t(newIndex), Op::MOVE};
-		storage->it = Flash::write(storage->it, &header, HEADER_SIZE);
+		FlashHeader header = {this->index, uint8_t(index), uint8_t(newIndex), Op::MOVE};
+		Flash::write(storage->it, &header, sizeof(FlashHeader));
+		storage->it += alignedFlashHeaderSize;
 	} else {
 		// defragment flash
 		storage->switchFlashRegions();
@@ -200,12 +317,16 @@ void Storage::init() {
 		}
 	}
 
-	// initialize arrays
+	// initialize arrays by collecting the elements 
 	const uint8_t *it = this->it;
-	while (it < this->end && it[3] != 0xff) {
+	while (it < this->end) {
 		// get header
-		const Header *header = reinterpret_cast<const Header*>(it);
-		it += Flash::align(HEADER_SIZE);
+		const FlashHeader *header = reinterpret_cast<const FlashHeader *>(it);
+		
+		// stop if header is invalid
+		if (header->op == Op::INVALID)
+			break;
+		it += flashAlign(sizeof(FlashHeader));
 		
 		// get array by index
 		ArrayData *arrayData = this->first;
@@ -216,7 +337,7 @@ void Storage::init() {
 		};
 		
 		// execute operation
-		Op op = Op(header->op);
+		Op op = header->op;
 		int index = header->index;
 		if (op == Op::OVERWRITE) {
 			// overwrite array elements, may enlarge the array
@@ -230,50 +351,68 @@ void Storage::init() {
 			
 			// set elements
 			for (int i = 0; i < count; ++i) {
-				int elementSize = arrayData->byteSize(it);
-				arrayData->elements[index + i] = it;
-				it += Flash::align(elementSize);
+				arrayData->flashElements[index + i] = it;
+				it += flashAlign(arrayData->flashSize(it));
 			}
 		} else if (op == Op::ERASE) {
 			// erase array elements
 			int count = header->value;
 			for (int i = index; i < arrayData->count - count; ++i) {
-				arrayData->elements[i] = arrayData->elements[i + count];
+				arrayData->flashElements[i] = arrayData->flashElements[i + count];
 			}
 			arrayData->shrink(count);
 		} else if (op == Op::MOVE) {
 			// move element
 			int newIndex = header->value;
-			const void **e = arrayData->elements;
-			const void *element = e[index];
+			const void **f = arrayData->flashElements;
+			const void *flashElement = f[index];
 			if (index < newIndex) {
 				for (int i = index; i < newIndex; ++i) {
-					e[i] = e[i + 1];
+					f[i] = f[i + 1];
 				}
 			} else {
 				for (int i = index; i > newIndex; --i) {
-					e[i] = e[i - 1];
+					f[i] = f[i - 1];
 				}
 			}
-			e[newIndex] = element;
+			f[newIndex] = flashElement;
 		}
 	}
 	this->it = it;
 	
-	// accumulated size of all elements
+	// calculate accumulated size of all flash elements and allocate ram
+	int flashElementsSize = 0;
+	uint32_t **ramElements = this->ramElements;
+	uint32_t *ram = this->ram;
 	ArrayData *arrayData = this->first;
 	while (arrayData != nullptr) {
+		arrayData->ramElements = ramElements;
+		
+		// iterate over array elements
 		for (int i = 0; i < arrayData->count; ++i) {
-			this->elementsSize += arrayData->byteSize(arrayData->elements[i]);
+			flashElementsSize += arrayData->flashSize(arrayData->flashElements[i]);
+		
+			ramElements[i] = ram;
+			ram += ramAlign(arrayData->ramSize(arrayData->flashElements[i]));
 		}
+		ramElements += arrayData->count;
 		arrayData = arrayData->next;
 	};
+	this->flashElementsSize = flashElementsSize;
+	
+	// write "end" pointer behint last ram element pointer
+	ramElements[0] = ram;
+	
+	// clear ram
+	for (uint32_t *it = this->ram; it != ram; ++it) {
+		*it = 0;
+	}
 }
 
-bool Storage::hasSpace(int elementCount, int byteSize) const {
+/*bool Storage::hasSpace(int elementCount, int byteSize) const {
 	return this->elementCount + elementCount <= ::size(this->elements)
-		&& (this->elementCount + 1) * (Flash::align(HEADER_SIZE) + Flash::WRITE_ALIGN) + this->elementsSize + byteSize < this->pageCount * Flash::PAGE_SIZE;
-}
+		&& (this->elementCount + 1) * (align(HEADER_SIZE) + WRITE_ALIGN) + this->elementsSize + byteSize < this->pageCount * FLASH_PAGE_SIZE;
+}*/
 
 void Storage::switchFlashRegions() {
 	// switch flash regions
@@ -291,27 +430,27 @@ void Storage::switchFlashRegions() {
 	
 	// write arrays to new flash region
 	this->elementCount = 0;
-	this->elementsSize = 0;
+	this->flashElementsSize = 0;
 	ArrayData *arrayData = this->first;
 	const uint8_t *it = this->it;
 	while (arrayData != nullptr) {
 		// write header for whole array (except first header)
 		if (arrayData != this->first) {
-			Header header = {arrayData->index, 0, arrayData->count, Op::OVERWRITE};
-			it = Flash::write(it, &header, HEADER_SIZE);
-		} else {
-			it += Flash::align(HEADER_SIZE);
+			FlashHeader header = {arrayData->index, 0, arrayData->count, Op::OVERWRITE};
+			Flash::write(it, &header, sizeof(FlashHeader));
 		}
-		
+		it += flashAlign(sizeof(FlashHeader));
+
 		// write array data
 		for (int i = 0; i < arrayData->count; ++i) {
-			int elementSize = arrayData->byteSize(arrayData->elements[i]);
-			arrayData->elements[i] = it;
-			it = Flash::write(it, arrayData->elements[i], elementSize);
+			int elementSize = arrayData->flashSize(arrayData->flashElements[i]);
+			arrayData->flashElements[i] = it;
+			Flash::write(it, arrayData->flashElements[i], elementSize);
+			it += flashAlign(elementSize);
 			
 			// update element count and accumulated size
 			++this->elementCount;
-			this->elementsSize = elementSize;
+			this->flashElementsSize = elementSize;
 		}
 
 		// next array
@@ -319,8 +458,8 @@ void Storage::switchFlashRegions() {
 	}
 	
 	// write first header last to make new flash region valid
-	Header header = {this->first->index, 0, this->first->count, Op::OVERWRITE};
-	Flash::write(this->it, &header, HEADER_SIZE);
+	FlashHeader header = {this->first->index, 0, this->first->count, Op::OVERWRITE};
+	Flash::write(this->it, &header, sizeof(FlashHeader));
 	
 	// erase old flash region
 	if (this->it != p) {
@@ -336,4 +475,36 @@ void Storage::switchFlashRegions() {
 	}
 
 	this->it = it;
+}
+
+
+void Storage::ramInsert(uint32_t **ramElement, int sizeChange) {
+	if (sizeChange == 0)
+		return;
+		
+	uint32_t **e = this->ramElements + this->elementCount;
+	
+	if (sizeChange > 0) {
+		uint32_t *src = *e;
+		uint32_t *dst = src + sizeChange;
+		uint32_t *begin = *ramElement;
+		for (; src != begin; --src, --dst) {
+			*dst = *src;
+		}
+	} else {
+		uint32_t *src = *ramElement - sizeChange;
+		uint32_t *dst = *ramElement;
+		uint32_t *end = *e;
+		for (; src != end; ++src, ++dst) {
+			*dst = *src;
+		}
+	}
+
+	// update ram element pointers
+	for (uint32_t **it = ramElement + 1; it != e; ++it) {
+		*it += sizeChange;
+	}
+
+	// update end pointer
+	*e += sizeChange;
 }
