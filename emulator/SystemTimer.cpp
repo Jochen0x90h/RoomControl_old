@@ -5,7 +5,7 @@
 SystemTimer::~SystemTimer() {
 }
 
-SystemTimer::SystemTime SystemTimer::getSystemTime() {
+SystemTime SystemTimer::getSystemTime() {
 	return std::chrono::steady_clock::now();
 }
 

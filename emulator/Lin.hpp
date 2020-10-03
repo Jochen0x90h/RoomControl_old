@@ -22,8 +22,10 @@ public:
 		enum Type {
 			/**
 			 * 2 channel switch with actuators
-			 * Flags for channel A/X: Bit 0: Switches, Bits 1-2: No relay, 1 relay, 2 relays, 2 interlocked relays for blind
-			 * Flags for channel B:/Y Bit 4: Switches, Bits 5-6: No relay, 1 relay, 2 relays, 2 interlocked relays for blind
+			 * Flags for switch side A, bits 0-1: 0 = no switch, 1 = one button, 2 = two independent buttons, 3 = rocker switch
+			 * Flags for switch side B, bits 2-3: 0 = no switch, 1 = one button, 2 = two independent buttons, 3 = rocker switch
+			 * Flags for relay side X: bit 4-5: 0 = no relay, 1 = one relay, 2 = two relays, 3 = two interlocked relays for blind
+			 * Flags for relay side Y: bit 6-7: 0 = no relay, 1 = one relay, 2 = two relays, 3 = two interlocked relays for blind
 			 */
 			SWITCH2 = 1
 		};
@@ -89,9 +91,16 @@ private:
 	
 	Gui &gui;
 	
-	uint8_t states[32];
+	struct State {
+		uint8_t relays;
+		int blindX;
+		int blindY;
+	};
+	State states[32];
 
 	bool sendBusy = false;
 
 	uint8_t receiveData[8];
+	
+	std::chrono::steady_clock::time_point time;
 };

@@ -212,6 +212,9 @@ private:
 	// Find topic by id. Returns nullptr if not found
 	TopicInfo *findTopic(uint16_t topicId);
 
+	// Find topic by gateway topic id. Returns nullptr if not found
+	uint16_t findTopicId(uint16_t gatewayTopicId);
+
 	
 	// Insert space into buffer for retained messages
 	uint16_t insertRetained(int offset, int length);

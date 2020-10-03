@@ -27,6 +27,10 @@ public:
 		, storage(0, FLASH_PAGE_COUNT, localDevices)
 		
 	{
+		SystemTime time = getSystemTime();
+		this->lastUpdateTime = time;
+		this->nextReportTime = time;
+		onSystemTimeout3(time);
 	}
 
 	~RoomControl() override;
@@ -240,34 +244,47 @@ public:
 	};
 	
 	struct Switch2Device : public LocalDevice {
-	
-		// timeoutX;
-		// timeoutY;
-		
+		struct Relays {
+			SystemDuration duration1;
+			SystemDuration duration2;
+		};
+		Relays r[2];
+
 		// device name
 		char name[16];
 	};
 	
-	struct Switch2DeviceState {
+	struct Switch2State {
+		struct Relays {
+			uint16_t topicId1;
+			uint16_t topicId2;
+			SystemTime timeout1;
+			SystemTime timeout2;
+			SystemDuration duration;
+		};
+		
+		// current state of switches
+		uint8_t switches;
+		
+		// current state of relays
+		uint8_t relays;
+
+		// additional state for controling the relays
+		Relays r[2];
+
+
 		// topic id for rocker a
 		uint16_t a;
 		
 		// topic id for rocker b
 		uint16_t b;
-		
-		// topic id for relays x
-		uint16_t x;
-		
-		// topic id for relays y
-		uint16_t y;
-		
-		uint8_t switches;
-		uint8_t relays;
-		// timeX;
-		// timeY;
 	};
 	
+	// subscribe devices to mqtt topics
 	void subscribeDevices();
+	
+	// update time dependent state of devices (e.g. blind position)
+	SystemTime updateDevices(SystemTime time);
 	
 	Storage storage;
 	Storage::Array<LocalDevice, void> localDevices;
@@ -277,4 +294,9 @@ public:
 		Switch2Device switch2Device;
 	} temp;
 	
+	// next time for reporting changing values
+	SystemTime nextReportTime;
+	
+	// time of last update of changing values
+	SystemTime lastUpdateTime;
 };

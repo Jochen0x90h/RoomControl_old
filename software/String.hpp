@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <iostream>
 
 // helper classes for distinguishing between fixed size array and c-string
 struct False {};
@@ -90,4 +91,9 @@ inline void assign(char (&str)[N], String s) {
 	for (int i = count; i < N; ++i) {
 		str[i] = 0;
 	}
+}
+
+inline std::ostream &operator <<(std::ostream &s, String str) {
+	s.write(str.data, str.length);
+	return s;
 }

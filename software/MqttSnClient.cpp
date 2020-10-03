@@ -492,7 +492,7 @@ void MqttSnClient::onUpReceived(int length) {
 						{
 							int length = data[0];
 							String topicName(data + 5, length - 5);
-							onSubscribed(msgId, topicName, qos, topicId);
+							onSubscribed(msgId, topicName, topicId, qos);
 						}
 						break;
 					case mqttsn::ReturnCode::REJECTED_CONGESTED:

@@ -5,9 +5,10 @@
 #include "tahoma_8pt.hpp"
 
 
-static const char weekdays[7][4] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
-static const char weekdaysShort[7][4] = {"M", "T", "W", "T", "F", "S", "S"};
+static char const weekdays[7][4] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+static char const weekdaysShort[7][4] = {"M", "T", "W", "T", "F", "S", "S"};
 
+static uint8_t const offOn[2] = {'0', '1'};
 
 RoomControl::~RoomControl() {
 }
@@ -53,42 +54,115 @@ void RoomControl::onError(int error, mqttsn::MessageType messageType) {
 
 void RoomControl::onPublished(uint16_t topicId, uint8_t const *data, int length, int8_t qos, bool retain) {
 	std::string s((char const*)data, length);
-	std::cout << "onPublished " << topicId << " data " << s << " retain " << retain << " qos " << int(qos) << std::endl;
+	std::cout << "onPublished " << topicId << " data " << s << " qos " << int(qos);
+	if (retain)
+		std::cout << " retain" << std::endl;
 
 	// check if this is a command
 	if (retain || length == 0)
 		return;
-		
+
+	SystemTime time = getSystemTime();
+
+	// update time dependent state of devices (e.g. blind position)
+	SystemTime nextTimeout = updateDevices(time);
+
 	// iterate over local devices
 	for (LocalDeviceElement e : this->localDevices) {
+		uint8_t flags = e.flash->device.flags;
 		switch (e.flash->device.type) {
 		case Lin::Device::SWITCH2:
 			{
-				Switch2DeviceState *state = reinterpret_cast<Switch2DeviceState *>(e.ram);
+				Switch2Device const *device = reinterpret_cast<Switch2Device const *>(e.flash);
+				Switch2State *state = reinterpret_cast<Switch2State *>(e.ram);
 
-				if (topicId == state->x || topicId == state->y) {
-					// get command
-					bool release = data[0] == '#';
-					bool on = data[0] == '1' || data[0] == '+';
-					bool off = data[0] == '0' || data[0] == '-';
-					
-					uint8_t relays = state->relays;
-					if (topicId == state->x) {
-						if (on || off)
-							relays = (relays & ~0x01) | (on ? 0x01 : 0);
-					} else if (topicId == state->y) {
-						if (on || off)
-							relays = (relays & ~0x04) | (on ? 0x04 : 0);
+				uint8_t relays = state->relays;
+				uint8_t relayBit1 = 0x01;
+				uint8_t f = flags >> 4;
+				for (int i = 0; i < 2; ++i) {
+					Switch2Device::Relays const &rd = device->r[i];
+					Switch2State::Relays &rs = state->r[i];
+
+					if (topicId == rs.topicId1 || topicId == rs.topicId2) {
+						uint8_t relayBit2 = relayBit1 << 1;
+						if ((f & 3) == 3) {
+							// blind (two interlocked relays)
+							bool up = data[0] == '+';
+							bool move = up || data[0] == '-';
+
+							if (relays & (relayBit1 | relayBit2)) {
+								// currently moving
+								bool stop = move || (data[0] == '#' && time >= rs.timeout1) ;
+								if (stop) {
+									relays &= ~(relayBit1 | relayBit2);
+								
+									// publish current blind position
+									int pos = (rs.duration * 100 + rd.duration2 / 2) / rd.duration2;
+									//std::cout << "pos " << pos << std::endl;
+									this->buffer << pos;
+									publish(rs.topicId1, this->buffer, 1, true);
+									this->buffer.clear();
+								}
+							} else {
+								// currently stopped
+								if (move) {
+									// start
+									rs.timeout1 = time + rd.duration1;
+									if (up) {
+										rs.timeout2 = time + rd.duration2 - rs.duration;
+										relays |= relayBit1;
+									} else {
+										rs.timeout2 = time + rs.duration;//rd.duration2;
+										relays |= relayBit2;
+									}
+									nextTimeout = min(nextTimeout, rs.timeout2);
+								}
+							}
+						} else if ((f & 3) != 0) {
+							// one or two relays
+							bool on = data[0] == '1' || data[0] == '+';
+							bool off = data[0] == '0' || data[0] == '-';
+							if (on || off) {
+								if (topicId == rs.topicId1) {
+									if (on) {
+										relays |= relayBit1;
+										rs.timeout1 = time + rd.duration1;
+										nextTimeout = min(nextTimeout, rs.timeout1);
+									} else {
+										relays &= ~relayBit1;
+									}
+									
+									// publish current switch state
+									publish(rs.topicId1, &offOn[int(on)], 1, 1, true);
+								} else {
+									if (on) {
+										relays |= relayBit2;
+										rs.timeout2 = time + rd.duration2;
+										nextTimeout = min(nextTimeout, rs.timeout2);
+									} else {
+										relays &= ~relayBit2;
+									}
+									
+									// publish current switch state
+									publish(rs.topicId2, &offOn[int(on)], 1, 1, true);
+								}
+							}
+						}
 					}
-					if (relays != state->relays) {
-						state->relays = relays;
-						linSend(e.flash->device.id, &relays, 1);
-					}
+					relayBit1 <<= 2;
+					f >>= 2;
+				}
+				
+				// send relay state to lin device if it has changed
+				if (relays != state->relays) {
+					state->relays = relays;
+					linSend(e.flash->device.id, &relays, 1);
 				}
 			}
 			break;
 		}
 	}
+	setSystemTimeout3(nextTimeout);
 }
 
 
@@ -110,6 +184,9 @@ void RoomControl::onLinReady() {
 		
 		// add new device if not found
 		if (!found) {
+			// clear device
+			memset(&this->temp, 0, sizeof(this->temp));
+		
 			// set device id and type
 			this->temp.localDevice.device = linDevice;
 
@@ -118,9 +195,14 @@ void RoomControl::onLinReady() {
 			this->buffer << hex(linDevice.id);
 			this->temp.localDevice.setName(this->buffer);
 			
+this->temp.switch2Device.r[0].duration1 = 3s;
+this->temp.switch2Device.r[0].duration2 = 6500ms;
+this->temp.switch2Device.r[1].duration1 = 3s;
+this->temp.switch2Device.r[1].duration2 = 6500ms;
+
 			// add new device
 			int index = this->localDevices.size();
-			this->localDevices.write(index, &this->temp.switch2Device);
+			this->localDevices.write(index, &this->temp.localDevice);
 		}
 	}
 }
@@ -132,10 +214,10 @@ void RoomControl::onLinReceived(uint32_t deviceId, uint8_t const *data, int leng
 			case Lin::Device::SWITCH2:
 				{
 					uint8_t const commands[] = "#+-";
-					Switch2DeviceState *state = reinterpret_cast<Switch2DeviceState *>(e.ram);
+					Switch2State *state = reinterpret_cast<Switch2State *>(e.ram);
 					
-					publish(state->a, &commands[data[0] & 3], 1, 1);
-					publish(state->b, &commands[(data[0] >> 2) & 3], 1, 1);
+					publish(state->a, &commands[data[0] & 3], 1, 1, true);
+					publish(state->b, &commands[(data[0] >> 2) & 3], 1, 1, true);
 				}
 				break;
 			}
@@ -152,7 +234,8 @@ void RoomControl::onLinSent() {
 // -----------
 		
 void RoomControl::onSystemTimeout3(SystemTime time) {
-
+	SystemTime nextTimeout = updateDevices(time);
+	setSystemTimeout3(nextTimeout);
 }
 
 
@@ -959,7 +1042,7 @@ int RoomControl::LocalDevice::flashSize() const {
 int RoomControl::LocalDevice::ramSize() const {
 	switch (this->device.type) {
 	case Lin::Device::SWITCH2:
-		return sizeof(Switch2DeviceState);
+		return sizeof(Switch2State);
 	}
 }
 
@@ -995,7 +1078,7 @@ void RoomControl::subscribeDevices() {
 		switch (e.flash->device.type) {
 		case Lin::Device::SWITCH2:
 			{
-				Switch2DeviceState *state = reinterpret_cast<Switch2DeviceState *>(e.ram);
+				Switch2State *state = reinterpret_cast<Switch2State *>(e.ram);
 				
 				this->buffer.setLength(deviceLength);
 				this->buffer << "a";
@@ -1007,15 +1090,119 @@ void RoomControl::subscribeDevices() {
 			
 				this->buffer.setLength(deviceLength);
 				this->buffer << "x";
-				state->x = subscribeTopic(this->buffer).topicId;
+				state->r[0].topicId1 = subscribeTopic(this->buffer).topicId;
 
 				this->buffer.setLength(deviceLength);
 				this->buffer << "y";
-				state->y = subscribeTopic(this->buffer).topicId;
+				state->r[1].topicId1 = subscribeTopic(this->buffer).topicId;
 			}
 			break;
 		}
 	}
 
 	this->buffer.clear();
+}
+
+SystemTime RoomControl::updateDevices(SystemTime time) {
+	bool report = time >= this->nextReportTime;
+	if (report) {
+		// publish changing values in a regular interval
+		this->nextReportTime = time + 1s;
+		//std::cout << "report" << std::endl;
+	}
+
+	SystemDuration duration = time - this->lastUpdateTime;
+	this->lastUpdateTime = time;
+
+	SystemTime nextTimeout = this->nextReportTime;
+
+	// iterate over local devices
+	for (LocalDeviceElement e : this->localDevices) {
+		uint8_t flags = e.flash->device.flags;
+		switch (e.flash->device.type) {
+		case Lin::Device::SWITCH2:
+			{
+				Switch2Device const *device = reinterpret_cast<Switch2Device const *>(e.flash);
+				Switch2State *state = reinterpret_cast<Switch2State *>(e.ram);
+
+				uint8_t relays = state->relays;
+				uint8_t relayBit1 = 0x01;
+				uint8_t f = flags >> 4;
+				for (int i = 0; i < 2; ++i) {
+					Switch2Device::Relays const &rd = device->r[i];
+					Switch2State::Relays &rs = state->r[i];
+					uint8_t relayBit2 = relayBit1 << 1;
+
+					if ((f & 3) == 3) {
+						// blind (two interlocked relays)
+						if (relays & (relayBit1 | relayBit2)) {
+							// currently moving
+							if (relays & relayBit1) {
+								// currently moving up
+								rs.duration += duration;
+								if (rs.duration > rd.duration2)
+									rs.duration = rd.duration2;
+
+							} else {
+								// currently moving down
+								rs.duration -= duration;
+								if (rs.duration < SystemDuration())
+									rs.duration = SystemDuration();
+
+							}
+						
+							// stop if run time has passed
+							if (time >= rs.timeout2) {
+								relays &= ~(relayBit1 | relayBit2);
+							} else {
+								// calc next timeout
+								nextTimeout = min(nextTimeout, rs.timeout2);
+							}
+							
+							if (report || time >= rs.timeout2) {
+								// publish current position
+								int pos = (rs.duration * 100 + rd.duration2 / 2) / rd.duration2;
+								//std::cout << "pos " << pos << std::endl;
+								this->buffer << pos;
+								publish(rs.topicId1, this->buffer, 1, true);
+								this->buffer.clear();
+							}
+						}
+
+					} else if ((f & 3) != 0) {
+						// one or two relays
+						if (relays & relayBit1) {
+							// relay 1 currently on, check if timeout elapsed
+							if (rd.duration1 != SystemDuration() && time >= rs.timeout1) {
+								relays &= ~relayBit1;
+								
+								// report state change
+								publish(rs.topicId1, &offOn[0], 1, 1, true);
+							}
+						}
+						if (relays & relayBit2) {
+							// relay 2 currently on, check if timeout elapsed
+							if (rd.duration2 != SystemDuration() && time >= rs.timeout2) {
+								relays &= ~relayBit2;
+
+								// report state change
+								publish(rs.topicId1, &offOn[0], 1, 1, true);
+							}
+						}
+					}
+
+					relayBit1 <<= 2;
+					f >>= 2;
+				}
+
+				// send relay state to lin device if it has changed
+				if (relays != state->relays) {
+					state->relays = relays;
+					linSend(e.flash->device.id, &relays, 1);
+				}
+			}
+			break;
+		}
+	}
+	return nextTimeout;
 }

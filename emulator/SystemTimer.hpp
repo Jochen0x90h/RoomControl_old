@@ -3,18 +3,19 @@
 #include "global.hpp"
 
 
+// duration
+using SystemDuration = std::chrono::steady_clock::duration;
+
+// time point
+using SystemTime = std::chrono::steady_clock::time_point;
+
+constexpr SystemTime min(SystemTime x, SystemTime y) {return x < y ? x : y;}
+
 /**
  * A steady system timer with 3 channels that is independent of summer/winter clock change
  */
 class SystemTimer {
 public:
-
-	// duration
-	using SystemDuration = std::chrono::steady_clock::duration;
-
-	// time point
-	using SystemTime = std::chrono::steady_clock::time_point;
-
 
 	SystemTimer()
 		: emulatorTimer1(global::context), emulatorTimer2(global::context), emulatorTimer3(global::context)
@@ -83,7 +84,7 @@ public:
 
 
 	/**
-	 * Convert system time to seconds
+	 * Convert duration to seconds
 	 */
 	static uint32_t toSeconds(SystemDuration duration) {
 		return std::chrono::duration_cast<std::chrono::seconds>(duration).count();

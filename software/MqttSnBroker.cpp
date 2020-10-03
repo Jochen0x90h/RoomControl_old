@@ -82,16 +82,18 @@ MqttSnBroker::TopicResult MqttSnBroker::subscribeTopic(String topicFilter, int8_
 // MqttSnClient user callbacks
 // ---------------------------
 
-void MqttSnBroker::onRegistered(uint16_t msgId, String topicName, uint16_t gatewayTopicId) {
-	uint16_t topicId = getTopicId(topicName);
-	if (topicId != 0) {
-		TopicInfo &topic = getTopic(topicId);
-		topic.gatewayTopicId = gatewayTopicId;
+void MqttSnBroker::onRegistered(uint16_t msgId, String topicName, uint16_t topicId) {
+	uint16_t localTopicId = getTopicId(topicName);
+	std::cout << topicName << " -> " << localTopicId << " " << topicId << std::endl;
+	if (localTopicId != 0) {
+		TopicInfo &topic = getTopic(localTopicId);
+		topic.gatewayTopicId = topicId;
 	}
 }
 
 void MqttSnBroker::onSubscribed(uint16_t msgId, String topicName, uint16_t topicId, int8_t qos) {
 	uint16_t localTopicId = getTopicId(topicName);
+	std::cout << topicName << " -> " << localTopicId << " " << topicId << std::endl;
 	if (localTopicId != 0) {
 		TopicInfo &topic = getTopic(localTopicId);
 		topic.gatewayTopicId = topicId;
@@ -104,7 +106,8 @@ mqttsn::ReturnCode MqttSnBroker::onPublish(uint16_t topicId, uint8_t const *data
 	if (isBrokerBusy())
 		return mqttsn::ReturnCode::REJECTED_CONGESTED;
 
-	TopicInfo *topic = findTopic(topicId);
+	uint16_t localTopicId = findTopicId(topicId);
+	TopicInfo *topic = findTopic(localTopicId);
 	if (topic == nullptr)
 		return mqttsn::ReturnCode::REJECTED_INVALID_TOPIC_ID;
 
@@ -656,6 +659,15 @@ MqttSnBroker::TopicInfo *MqttSnBroker::findTopic(uint16_t topicId) {
 		return nullptr;
 	TopicInfo *topic = &this->topics[topicId - 1];
 	return topic->hash != 0 ? topic : nullptr;
+}
+
+uint16_t MqttSnBroker::findTopicId(uint16_t gatewayTopicId) {
+	for (int i = 0; i < this->topicCount; ++i) {
+		TopicInfo *topic = &this->topics[i];
+		if (topic->hash != 0 && topic->gatewayTopicId == gatewayTopicId)
+			return i + 1;
+	}
+	return 0;
 }
 
 uint16_t MqttSnBroker::insertRetained(int offset, int length) {

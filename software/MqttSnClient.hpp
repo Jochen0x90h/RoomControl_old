@@ -319,8 +319,8 @@ protected:
 	 * Client as subscribed to a topic
 	 * @param msgId message id returned by subscribe()
 	 * @param topicName topic name (path without wildcards). Only valid as long as no new messages are sent
-	 * @param qos granted quality of service level
 	 * @param topicId topic id to use in onPublish() or 0 if subscribed topic contains wildcards
+	 * @param qos granted quality of service level
 	 */
 	virtual void onSubscribed(uint16_t msgId, String topicName, uint16_t topicId, int8_t qos) = 0;
 	
