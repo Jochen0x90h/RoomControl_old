@@ -13,13 +13,13 @@ struct Array {
 	constexpr Array() : data(nullptr), length(0) {}
 
 	template <int N>
-	constexpr Array(const T (&array)[N]) : data(array), length(N) {}
+	constexpr Array(T const (&array)[N]) : data(array), length(N) {}
 
-	constexpr Array(const T *data, int length) : data(data), length(length) {}
+	constexpr Array(T const *data, int length) : data(data), length(length) {}
 
 	bool empty() {return this->length <= 0;}
 
-	constexpr const T &operator [](int index) const {return this->data[index];}
+	constexpr T const &operator [](int index) const {return this->data[index];}
 
 	const T *begin() const {return this->data;}
 	const T *end() const {return this->data + this->length;}

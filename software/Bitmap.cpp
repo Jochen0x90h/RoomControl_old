@@ -1,8 +1,7 @@
 #include "Bitmap.hpp"
 
 
-void fillBitmap(int w, int h, uint8_t *data, int x, int y, int width, int height, Mode mode)
-{
+void fillBitmap(int w, int h, uint8_t *data, int x, int y, int width, int height, Mode mode) {
 	if (mode == Mode::KEEP)
 		return;
 	

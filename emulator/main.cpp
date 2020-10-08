@@ -71,7 +71,7 @@ Device deviceData[] = {
  * Linux: /dev/ttyUSB0 (add yourself to the dialout group: sudo usermod -a -G dialout $USER)
  */
 int main(int argc, const char **argv) {
-	if (argc <= 1) {
+/*	if (argc <= 1) {
 		std::cout << "usage: emulator <device>" << std::endl;
 	#if __APPLE__
 		std::cout << "example: emulator /dev/tty.usbserial-FT3PMLOR" << std::endl;
@@ -80,6 +80,7 @@ int main(int argc, const char **argv) {
 	#endif
 		return 1;
 	}
+*/
 /*
 	std::cout << "sizeof(Event): " << sizeof(Event) << " byteSize(): " << eventData[0].byteSize() << std::endl;
 	std::cout << "sizeof(Timer): " << sizeof(Timer) << " byteSize(): " << timerData[0].byteSize() << std::endl;
@@ -95,7 +96,7 @@ int main(int argc, const char **argv) {
 	is.close();
 
 	// get device from command line
-	std::string device = argv[1];
+	//std::string device = argv[1];
 	
 	// init GLFW
 	glfwSetErrorCallback(errorCallback);

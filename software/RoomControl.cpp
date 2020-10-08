@@ -10,6 +10,18 @@ static char const weekdaysShort[7][4] = {"M", "T", "W", "T", "F", "S", "S"};
 
 static uint8_t const offOn[2] = {'0', '1'};
 
+
+static int parseInt(uint8_t const *str, int length) {
+	int value = 0;
+	for (int i = 0; i < length; ++i) {
+		uint8_t ch = str[i];
+		if (ch < '0' || ch > '9')
+			return 0x80000000; // invalid
+		value = value * 10 + ch - '0';
+	}
+	return value;
+}
+
 RoomControl::~RoomControl() {
 }
 
@@ -87,64 +99,98 @@ void RoomControl::onPublished(uint16_t topicId, uint8_t const *data, int length,
 						uint8_t relayBit2 = relayBit1 << 1;
 						if ((f & 3) == 3) {
 							// blind (two interlocked relays)
-							bool up = data[0] == '+';
-							bool move = up || data[0] == '-';
+							if (length == 1) {
+								bool up = data[0] == '+';
+								bool move = up || data[0] == '-';
 
-							if (relays & (relayBit1 | relayBit2)) {
-								// currently moving
-								bool stop = move || (data[0] == '#' && time >= rs.timeout1) ;
-								if (stop) {
-									relays &= ~(relayBit1 | relayBit2);
-								
-									// publish current blind position
-									int pos = (rs.duration * 100 + rd.duration2 / 2) / rd.duration2;
-									//std::cout << "pos " << pos << std::endl;
-									this->buffer << pos;
-									publish(rs.topicId1, this->buffer, 1, true);
-									this->buffer.clear();
+								if (relays & (relayBit1 | relayBit2)) {
+									// currently moving
+									bool stop = move || (data[0] == '#' && time >= rs.timeout1) ;
+									if (stop) {
+										relays &= ~(relayBit1 | relayBit2);
+									
+										// publish current blind position
+										int pos = (rs.duration * 100 + rd.duration2 / 2) / rd.duration2;
+										//std::cout << "pos " << pos << std::endl;
+										this->buffer << pos;
+										publish(rs.topicId1, this->buffer, 1, true);
+										this->buffer.clear();
+									}
+								} else {
+									// currently stopped
+									if (move) {
+										// start
+										rs.timeout1 = time + rd.duration1;
+										if (up) {
+											// up with extra time
+											rs.timeout2 = time + rd.duration2 - rs.duration + 500ms;
+											relays |= relayBit1;
+										} else {
+											// down with extra time
+											rs.timeout2 = time + rs.duration + 500ms;
+											relays |= relayBit2;
+										}
+										nextTimeout = min(nextTimeout, rs.timeout2);
+									}
 								}
-							} else {
-								// currently stopped
-								if (move) {
-									// start
-									rs.timeout1 = time + rd.duration1;
-									if (up) {
-										rs.timeout2 = time + rd.duration2 - rs.duration;
+							} else if (data[length - 1] == '%') {
+								// percentage 0% to 100%
+								relays &= ~(relayBit1 | relayBit2);
+								int percentage = parseInt(data, length - 1);
+								if (percentage == 100) {
+									// up with extra time
+									rs.timeout2 = time + rd.duration2 - rs.duration + 500ms;
+									relays |= relayBit1;
+								} else if (percentage == 0) {
+									// down with extra time
+									rs.timeout2 = time + rs.duration + 500ms;
+									relays |= relayBit2;
+								} else if (percentage > 0 && percentage < 100) {
+									// move to target percentage
+									SystemDuration targetDuration = (rd.duration2 * percentage) / 100;
+									if (targetDuration > rs.duration) {
+										// up
+										rs.timeout2 = time + targetDuration - rs.duration;
 										relays |= relayBit1;
 									} else {
-										rs.timeout2 = time + rs.duration;//rd.duration2;
+										// down
+										rs.timeout2 = time + rs.duration - targetDuration;
 										relays |= relayBit2;
 									}
-									nextTimeout = min(nextTimeout, rs.timeout2);
 								}
+								nextTimeout = min(nextTimeout, rs.timeout2);
 							}
 						} else if ((f & 3) != 0) {
 							// one or two relays
-							bool on = data[0] == '1' || data[0] == '+';
-							bool off = data[0] == '0' || data[0] == '-';
-							if (on || off) {
-								if (topicId == rs.topicId1) {
-									if (on) {
-										relays |= relayBit1;
-										rs.timeout1 = time + rd.duration1;
-										nextTimeout = min(nextTimeout, rs.timeout1);
+							if (length == 1) {
+								bool on = data[0] == '1' || data[0] == '+';
+								bool off = data[0] == '0' || data[0] == '-';
+								if (on || off) {
+									if (topicId == rs.topicId1) {
+										if (on) {
+											relays |= relayBit1;
+											rs.timeout1 = time + rd.duration1;
+											if (rd.duration1 != SystemDuration())
+												nextTimeout = min(nextTimeout, rs.timeout1);
+										} else {
+											relays &= ~relayBit1;
+										}
+										
+										// publish current switch state
+										publish(rs.topicId1, &offOn[int(on)], 1, 1, true);
 									} else {
-										relays &= ~relayBit1;
+										if (on) {
+											relays |= relayBit2;
+											rs.timeout2 = time + rd.duration2;
+											if (rd.duration2 != SystemDuration())
+												nextTimeout = min(nextTimeout, rs.timeout2);
+										} else {
+											relays &= ~relayBit2;
+										}
+										
+										// publish current switch state
+										publish(rs.topicId2, &offOn[int(on)], 1, 1, true);
 									}
-									
-									// publish current switch state
-									publish(rs.topicId1, &offOn[int(on)], 1, 1, true);
-								} else {
-									if (on) {
-										relays |= relayBit2;
-										rs.timeout2 = time + rd.duration2;
-										nextTimeout = min(nextTimeout, rs.timeout2);
-									} else {
-										relays &= ~relayBit2;
-									}
-									
-									// publish current switch state
-									publish(rs.topicId2, &offOn[int(on)], 1, 1, true);
 								}
 							}
 						}
@@ -303,9 +349,9 @@ void RoomControl::updateMenu(int delta, bool activated) {
 						
 			// display weekday and clock time
 			this->buffer << weekdays[time.getWeekday()] << "  "
-				<< decimal(time.getHours()) << ':'
-				<< decimal(time.getMinutes(), 2) << ':'
-				<< decimal(time.getSeconds(), 2);
+				<< dec(time.getHours()) << ':'
+				<< dec(time.getMinutes(), 2) << ':'
+				<< dec(time.getSeconds(), 2);
 			bitmap.drawText(20, 10, tahoma_8pt, this->buffer, 1);
 /*
 			// update target temperature

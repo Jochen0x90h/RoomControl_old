@@ -1,7 +1,7 @@
 #include "MqttSnBroker.hpp"
-#include "util.hpp"
-#include <cassert>
 
+// min for qos (quality of service)
+constexpr int8_t min(int8_t x, int8_t y) {return x < y ? x : y;}
 
 
 MqttSnBroker::MqttSnBroker(UpLink::Parameters const &upParameters, DownLink::Parameters const &downParameters)
@@ -1006,7 +1006,7 @@ void MqttSnBroker::sendPublish(uint16_t topicId, TopicInfo *topic, uint8_t const
 	}
 
 	// publish to local client if it has subscribed to the topic
-	int localQos = topic->getQos(LOCAL_CLIENT_INDEX);
+	int8_t localQos = topic->getQos(LOCAL_CLIENT_INDEX);
 	if (localQos >= 0)
 		onPublished(topicId, data, length, min(qos, localQos), retain);
 }

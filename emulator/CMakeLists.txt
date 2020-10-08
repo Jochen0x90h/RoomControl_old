@@ -35,6 +35,8 @@ set(SOFTWARE
 	../software/Array.hpp
 	../software/Bitmap.cpp
 	../software/Bitmap.hpp
+	../software/convert.cpp
+	../software/convert.hpp
 	../software/Font.cpp
 	../software/Font.hpp
 	../software/Flash.hpp
@@ -42,6 +44,7 @@ set(SOFTWARE
 	../software/MqttSnClient.hpp
 	../software/MqttSnBroker.cpp
 	../software/MqttSnBroker.hpp
+	../software/optional.hpp
 	../software/RoomControl.cpp
 	../software/RoomControl.hpp
 	../software/String.hpp
@@ -50,6 +53,7 @@ set(SOFTWARE
 	../software/tahoma_8pt.hpp
 	../software/Storage.cpp
 	../software/Storage.hpp
+	../software/SystemTime.hpp
 	#../software/Clock.hpp
 	#../software/EnOceanProtocol.cpp
 	#../software/EnOceanProtocol.hpp

@@ -1,16 +1,18 @@
 #pragma once
 
 #include "String.hpp"
+#include "convert.hpp"
+#include "util.hpp"
 
 
 // decimal numbers
 template <typename T>
-struct Decimal {
+struct Dec {
 	T value;
 	int digitCount;
 };
 template <typename T>
-Decimal<T> decimal(T value, int digitCount = 1) {
+Dec<T> dec(T value, int digitCount = 1) {
 	return {value, digitCount};
 }
 
@@ -29,13 +31,25 @@ Bcd<T> bcd(T value, int digitCount = 1) {
 template <typename T>
 struct Hex {
 	T value;
+	int digitCount;
 };
 template <typename T>
-Hex<T> hex(T value) {
-	return {value};
+Hex<T> hex(T value, int digitCount = sizeof(T) * 2) {
+	return {value, digitCount};
 }
 
-static const char *hexTable = "0123456789ABCDEF";
+// floating point numbers
+struct Flt {
+	float value;
+	int digitCount;
+	int decimalCount;
+};
+constexpr Flt flt(float value, int decimalCount = 3) {
+	return {value, 1, decimalCount};
+}
+constexpr Flt flt(float value, int digitCount, int decimalCount) {
+	return {value, digitCount, decimalCount};
+}
 
 /**
  * String buffer with fixed maximum length
@@ -43,63 +57,48 @@ static const char *hexTable = "0123456789ABCDEF";
 template <int L>
 class StringBuffer {
 public:
-	StringBuffer() {}
+	StringBuffer() : index(0) {}
 	
 	void clear() {this->index = 0;}
 
-	StringBuffer &operator << (char ch) {
+	StringBuffer &operator <<(char ch) {
 		if (this->index < L)
 			this->buffer[this->index++] = ch;
 		this->buffer[this->index] = 0;
 		return *this;
 	}
 
-	StringBuffer &operator << (const String &str) {
-		for (int i = 0; i < str.length && this->index < L; ++i) {
-			char ch = str.data[i];
-			if (ch == 0)
-				break;
-			this->buffer[this->index++] = ch;
+	StringBuffer &operator <<(const String &str) {
+		int l = min(str.length, L - this->index);
+		char const *src = str.begin();
+		char *dst = this->buffer + this->index;
+		for (int i = 0; i < l; ++i) {
+			dst[i] = src[i];
 		}
+		this->index += l;
 		this->buffer[this->index] = 0;
 		return *this;
 	}
 
 	template <typename T>
-	StringBuffer &operator << (Decimal<T> dec) {
-		char buffer[12];
-
-		unsigned int value = dec.value < 0 ? -dec.value : dec.value;
-
-		char * b = buffer + 11;
-		*b = 0;
-		int digitCount = dec.digitCount;
-		while (value > 0 || digitCount > 0) {
-			--b;
-			*b = '0' + value % 10;
-			value /= 10;
-			--digitCount;
-		};
-
+	StringBuffer &operator <<(Dec<T> dec) {
+		uint32_t value = dec.value;
 		if (dec.value < 0) {
-			--b;
-			*b = '-';
+			if (this->index < L)
+				this->buffer[this->index++] = '-';
+			value = -dec.value;
 		}
-
-		// append the number
-		while (*b != 0 && this->index < L) {
-			this->buffer[this->index++] = *(b++);
-		}
+		this->index += toString(this->buffer + this->index, L - this->index, value, dec.digitCount);
 		this->buffer[this->index] = 0;
 		return *this;
 	}
 
-	StringBuffer &operator << (int dec) {
-		return operator << (Decimal<int>{dec, 1});
+	StringBuffer &operator <<(int dec) {
+		return operator <<(Dec<int>{dec, 1});
 	}
 
 	template <typename T>
-	StringBuffer &operator << (Bcd<T> bcd) {
+	StringBuffer &operator <<(Bcd<T> bcd) {
 		int end = bcd.digitCount * 4;
 		while (end < 32 && bcd.value >> end != 0)
 			end += 4;
@@ -111,15 +110,20 @@ public:
 	}
 
 	template <typename T>
-	StringBuffer &operator << (Hex<T> hex) {
-		for (int i = sizeof(T) * 8 - 4; i >= 0 && this->index < L; i -= 4) {
-			this->buffer[this->index++] = hexTable[(hex.value >> i) & 0xf];
-		}
+	StringBuffer &operator <<(Hex<T> hex) {
+		this->index += hexToString(this->buffer + this->index, L - this->index, hex.value, hex.digitCount);
+		this->buffer[this->index] = 0;
+		return *this;
+	}
+	
+	StringBuffer &operator <<(Flt flt) {
+		this->index += toString(this->buffer + this->index, L - this->index, flt.value, flt.digitCount,
+			flt.decimalCount);
 		this->buffer[this->index] = 0;
 		return *this;
 	}
 
-	operator String () {
+	operator String() {
 		return {this->buffer, this->index};
 	}
 	
@@ -128,6 +132,7 @@ public:
 	void setLength(int length) {this->index = length;}
 
 protected:
+
 	char buffer[L + 1];
 	int index = 0;
 };

@@ -1,5 +1,4 @@
 #include "MqttSnClient.hpp"
-#include <cassert>
 
 /*
 static MqttSnClient::Udp6Endpoint const broadcast = {

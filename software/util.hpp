@@ -1,11 +1,9 @@
 #pragma once
 
-#include "assert.hpp"
-
-constexpr int8_t min(int8_t x, int8_t y) {return x < y ? x : y;}
-/*
 constexpr int min(int x, int y) {return x < y ? x : y;}
 constexpr int max(int x, int y) {return x > y ? x : y;}
+
+/*
 #ifndef _STDLIB_H_
 constexpr int abs(int x) {return x > 0 ? x : -x;}
 #endif

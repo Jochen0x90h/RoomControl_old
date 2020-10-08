@@ -73,7 +73,7 @@ struct String {
 		return String(data + beginIndex, endIndex - beginIndex);
 	}
 
-	constexpr const char operator [](int index) const {return this->data[index];}
+	constexpr char const operator [](int index) const {return this->data[index];}
 
 	char const *begin() const {return this->data;}
 	char const *end() const {return this->data + this->length;}
