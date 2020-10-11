@@ -1,5 +1,6 @@
 #pragma once
 
+#include "assert.hpp"
 #include "util.hpp"
 #include "Flash.hpp"
 #include <stdint.h>

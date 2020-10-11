@@ -102,7 +102,7 @@ inline void setUShort(uint8_t *buffer, uint16_t value) {
  * Inherits platform dependent (hardware or emulator) components for network and timing
  * Gateway search is removed as we know that our gateway is always on the other side of the up-link
  */
-class MqttSnClient : public UpLink, public SystemTimer {
+class MqttSnClient : public SystemTimer, public UpLink {
 public:
 
 	// Port the MQTT-SN client binds to
@@ -135,7 +135,7 @@ public:
 
 
 	// maximum number of queued messages
-	static constexpr int MAX_SEND_COUNT = 16;//128; // must be power of 2
+	static constexpr int MAX_SEND_COUNT = 128; // must be power of 2
 	
 	// size of message buffer
 	static constexpr int SEND_BUFFER_SIZE = 2048;
@@ -193,7 +193,7 @@ public:
 	};
 	
 
-	MqttSnClient(UpLink::Parameters const &upParameters);
+	MqttSnClient();
 
 	~MqttSnClient() override;
 

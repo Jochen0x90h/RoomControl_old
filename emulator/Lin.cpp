@@ -8,7 +8,7 @@ static Lin::Device devices[] = {
 };
 
 
-Lin::Lin(Parameters parameters) : gui(parameters.gui) {
+Lin::Lin() {
 	// post onLinReady() into event loop
 	boost::asio::post(global::context, [this] {
 		onLinReady();
@@ -36,6 +36,8 @@ void Lin::linSend(uint32_t deviceId, const uint8_t *data, int length) {
 }
 
 void Lin::doGui(int &id) {
+	Gui *gui = global::gui;
+
 	// time difference
 	auto now = std::chrono::steady_clock::now();
 	int ms = std::chrono::duration_cast<std::chrono::microseconds>(now - this->time).count();
@@ -61,7 +63,7 @@ void Lin::doGui(int &id) {
 			uint8_t flags = device.flags;
 			
 			if ((flags & 0x0f) != 0) {
-				int rocker = this->gui.doubleRocker(id++);
+				int rocker = gui->doubleRocker(id++);
 				if (rocker != -1) {
 					std::cout << rocker << std::endl;
 					this->receiveData[0] = uint8_t(rocker);
@@ -71,23 +73,23 @@ void Lin::doGui(int &id) {
 			
 			int x = (flags >> 4) & 0x03;
 			if (x == 3) {
-				this->gui.blind(state.blindX >> 16);
+				gui->blind(state.blindX >> 16);
 			} else if (x >= 1) {
-				this->gui.light(state.relays & 1, 100);
+				gui->light(state.relays & 1, 100);
 				if (x == 2)
-					this->gui.light(state.relays & 2, 100);
+					gui->light(state.relays & 2, 100);
 			}
 			
 			int y = (flags >> 6) & 0x03;
 			if (y == 3) {
-				this->gui.blind(state.blindY >> 16);
+				gui->blind(state.blindY >> 16);
 			} else if (y >= 1) {
-				this->gui.light(state.relays & 4, 100);
+				gui->light(state.relays & 4, 100);
 				if (y == 2)
-					this->gui.light(state.relays & 8, 100);
+					gui->light(state.relays & 8, 100);
 			}
 		}
-		
-		this->gui.newLine();
+
+		gui->newLine();
 	}
 }

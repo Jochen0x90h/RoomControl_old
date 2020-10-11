@@ -4,8 +4,8 @@
 constexpr int8_t min(int8_t x, int8_t y) {return x < y ? x : y;}
 
 
-MqttSnBroker::MqttSnBroker(UpLink::Parameters const &upParameters, DownLink::Parameters const &downParameters)
-	: MqttSnClient(upParameters), DownLink(downParameters)
+MqttSnBroker::MqttSnBroker()
+	: MqttSnClient(), DownLink()
 {
 	// init clients
 	for (int i = 0; i < MAX_CLIENT_COUNT; ++i) {
@@ -13,7 +13,7 @@ MqttSnBroker::MqttSnBroker(UpLink::Parameters const &upParameters, DownLink::Par
 		client.clientId = 0;
 		client.index = i;
 	}
-	
+
 	// init topics
 	for (int i = 0; i < MAX_TOPIC_COUNT; ++i) {
 		TopicInfo &topic = this->topics[i];
@@ -113,6 +113,8 @@ mqttsn::ReturnCode MqttSnBroker::onPublish(uint16_t topicId, uint8_t const *data
 
 	// publish to all clients and local client
 	sendPublish(topicId, topic, data, length, qos, retain);
+	
+	return mqttsn::ReturnCode::ACCEPTED;
 }
 
 // transport

@@ -11,18 +11,12 @@
 class DownLink {
 public:
 
-	// platform dependent parameters
-	struct Parameters {
-		// local endpoint (e.g. asio::ip::udp::endpoint(asio::ip::udp::v6(), port))
-		asio::ip::udp::endpoint local;
-	};
-
 	/**
 	 * Constructor
 	 * @param parameters platform dependent parameters
 	 */
-	DownLink(Parameters parameters)
-		: emulatorSocket(global::context, parameters.local)
+	DownLink()
+		: emulatorSocket(global::context, global::downLocal)
 	{}
 
 	virtual ~DownLink();
@@ -66,7 +60,8 @@ private:
 	// list of downlinks
 	uint16_t next = 1;
 	boost::bimap<asio::ip::udp::endpoint, uint16_t> endpoints;
-	
+
+	asio::ip::udp::endpoint sender;
 	uint8_t sendBuffer[256];
 	bool sendBusy = false;
 };

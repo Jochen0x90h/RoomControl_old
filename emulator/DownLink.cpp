@@ -10,11 +10,10 @@ DownLink::~DownLink() {
 //}
 
 void DownLink::downReceive(uint8_t *data, int length) {
-	std::cout << "receive" << std::endl;
-	asio::ip::udp::endpoint sender;
-	this->emulatorSocket.async_receive_from(boost::asio::buffer(data, length), sender,
-		[this, &sender] (const boost::system::error_code& error, std::size_t receivedLength) {
-			std::cout << "received " << receivedLength << " bytes from " << sender << std::endl;
+	std::cout << "down receive" << std::endl;
+	this->emulatorSocket.async_receive_from(boost::asio::buffer(data, length), this->sender,
+		[this] (const boost::system::error_code& error, std::size_t receivedLength) {
+			std::cout << "received " << receivedLength << " bytes from " << this->sender << std::endl;
 
 			auto p = this->endpoints.left.insert({sender, this->next});
 			if (p.second)

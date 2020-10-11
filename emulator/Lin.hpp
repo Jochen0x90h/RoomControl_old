@@ -12,11 +12,6 @@
 class Lin {
 public:
 
-	// platform dependent parameters
-	struct Parameters {
-		Gui &gui;
-	};
-
 	// LIN device
 	struct Device {
 		enum Type {
@@ -44,7 +39,7 @@ public:
 	 * Constructor
 	 * @param parameters platform dependent parameters
 	 */
-	Lin(Parameters parameters);
+	Lin();
 
 	virtual ~Lin();
 
@@ -88,8 +83,6 @@ public:
 	void doGui(int &id);
 	
 private:
-	
-	Gui &gui;
 	
 	struct State {
 		uint8_t relays;

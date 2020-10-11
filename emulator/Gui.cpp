@@ -3,6 +3,8 @@
 #include "tahoma_8pt.hpp"
 #include <vector>
 #include <stdexcept>
+#include <cmath>
+
 
 float const MARGIN = 0.05f;
 

@@ -11,13 +11,33 @@ project(Emulator)
 # use C++17 standard by default
 set(CMAKE_CXX_STANDARD 17)
 
-find_package(Threads REQUIRED)
+# suppress warning for own s and ms literal operators that are used instad of std::chrono
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-user-defined-literals")
+else()
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-literal-suffix")
+endif()
 
-# macOS: brew install glfw3
-find_package(glfw3 3.3 REQUIRED)
+# enable address sanitizer
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
 
-# macOS: brew install boost
-find_package(Boost REQUIRED COMPONENTS system)
+
+# install conan dependencies if not done yet (CLion: use https://github.com/conan-io/conan-clion-plugin)
+if(${PROJECT_SOURCE_DIR}/conanfile.py IS_NEWER_THAN ${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
+	set(PROFILE default)
+	if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+		set(PROFILE Debug)
+	endif()
+	message("install conan dependencies for profile ${PROFILE}")
+	execute_process(COMMAND conan install ${PROJECT_SOURCE_DIR}/conanfile.py --profile ${PROFILE} WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+endif()
+
+# conan dependencies
+include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
+conan_basic_setup(TARGETS)
+
+
 
 # find Display, Poti and Temperature in gui subdirectory
 include_directories(gui)
@@ -115,18 +135,8 @@ include_directories(emulator
 	PRIVATE
 		.
 		../software
-		#../MQTTSNPacket/src
-		${Boost_INCLUDE_DIR}
 )
-target_link_libraries(emulator
-	PRIVATE
-		glfw
-		${CMAKE_THREAD_LIBS_INIT}
-		${CMAKE_DL_LIBS}
-		${Boost_SYSTEM_LIBRARY}
-		#MQTTSNPacketClient
-		#MQTTSNPacketServer
-)
+conan_target_link_libraries(emulator)
 
 
 # test broker
@@ -136,6 +146,7 @@ add_executable(testBroker
 	../software/MqttSnClient.hpp
 	../software/MqttSnBroker.cpp
 	../software/MqttSnBroker.hpp
+	../software/SystemTime.hpp
 	UpLink.cpp
 	UpLink.hpp
 	DownLink.cpp
@@ -149,11 +160,18 @@ include_directories(testBroker
 	PRIVATE
 		.
 		../software
-		${Boost_INCLUDE_DIR}
 )
-target_link_libraries(emulator
-	PRIVATE
-		${CMAKE_THREAD_LIBS_INIT}
-		${CMAKE_DL_LIBS}
-		${Boost_SYSTEM_LIBRARY}
+conan_target_link_libraries(testBroker)
+
+
+# install the emulator
+install(TARGETS emulator
+	LIBRARY DESTINATION lib
+	ARCHIVE DESTINATION lib
+	RUNTIME DESTINATION bin
 )
+
+
+# enable testing, adds test or RUN_TESTS target to run all tests
+#enable_testing()
+#add_subdirectory(test)

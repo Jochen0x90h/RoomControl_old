@@ -129,20 +129,16 @@ int main(int argc, const char **argv) {
 	// emulator user interface
 	Gui gui;
 
+	// set global variables
 	boost::system::error_code ec;
 	asio::ip::address localhost = asio::ip::address::from_string("::1", ec);
-
-	UpLink::Parameters upParameters;
-	upParameters.local = asio::ip::udp::endpoint(asio::ip::udp::v6(), 1337);
-	upParameters.remote = asio::ip::udp::endpoint(localhost, 47193);
-
-	DownLink::Parameters downParameters;
-	downParameters.local = asio::ip::udp::endpoint(asio::ip::udp::v6(), 1338);
-
-	Lin::Parameters linParameters = {gui};
+	global::local = asio::ip::udp::endpoint(asio::ip::udp::v6(), 1337);
+	global::upLink = asio::ip::udp::endpoint(localhost, 47193);
+	global::downLocal = asio::ip::udp::endpoint(asio::ip::udp::v6(), 1338);
+	global::gui = &gui;
 
 	// the room control application
-	RoomControl roomControl(upParameters, downParameters, linParameters);
+	RoomControl roomControl;
 
 	// main loop
 	int frameCount = 0;

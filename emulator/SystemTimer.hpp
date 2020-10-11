@@ -1,15 +1,16 @@
 #pragma once
 
 #include "global.hpp"
+#include "SystemTime.hpp"
 
 
 // duration
-using SystemDuration = std::chrono::steady_clock::duration;
+//using SystemDuration = std::chrono::steady_clock::duration;
 
 // time point
-using SystemTime = std::chrono::steady_clock::time_point;
+//using SystemTime = std::chrono::steady_clock::time_point;
 
-constexpr SystemTime min(SystemTime x, SystemTime y) {return x < y ? x : y;}
+//constexpr SystemTime min(SystemTime x, SystemTime y) {return x < y ? x : y;}
 
 /**
  * A steady system timer with 3 channels that is independent of summer/winter clock change
@@ -81,14 +82,6 @@ public:
 	 * @param current time
 	 */
 	virtual void onSystemTimeout3(SystemTime time) = 0;
-
-
-	/**
-	 * Convert duration to seconds
-	 */
-	static uint32_t toSeconds(SystemDuration duration) {
-		return std::chrono::duration_cast<std::chrono::seconds>(duration).count();
-	}
 
 protected:
 	

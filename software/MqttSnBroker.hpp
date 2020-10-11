@@ -41,7 +41,7 @@ public:
 	};
 
 
-	MqttSnBroker(UpLink::Parameters const &upParameters, DownLink::Parameters const &downParameters);
+	MqttSnBroker();
 
 	/**
 	 * Returns true if send queue to gateway is full
@@ -245,9 +245,7 @@ private:
 	// send a disconnect message to a client
 	void sendDisconnect(uint16_t clientId);
 	
-	//void processTimeout(SystemTime time);
-	
-	
+
 	// clients
 	ClientInfo clients[MAX_CLIENT_COUNT];
 	
@@ -260,11 +258,6 @@ private:
 	// space retained messages
 	int retainedSize = 0;
 	uint8_t retained[RETAINED_BUFFER_SIZE];
-
-	// cache for message to send, busy flag indicates if sending of packet is in progress
-	//bool busy;
-	//uint8_t sendMessage[MAX_MESSAGE_LENGTH];
-	//int sendLength;
 
 	// id for next message to gateway to be able to associate the reply with a request
 	uint16_t nextMsgId = 0;

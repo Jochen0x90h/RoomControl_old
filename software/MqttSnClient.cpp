@@ -9,8 +9,8 @@ static MqttSnClient::Udp6Endpoint const broadcast = {
 };
 */
 
-MqttSnClient::MqttSnClient(UpLink::Parameters const &upParameters)
-	: UpLink(upParameters), SystemTimer()
+MqttSnClient::MqttSnClient()
+	: SystemTimer(), UpLink()
 {
 	// enable receiving of packets from gateway (on other side of up-link)
 	upReceive(this->receiveMessage, MAX_MESSAGE_LENGTH);
@@ -65,7 +65,7 @@ MqttSnClient::Result MqttSnClient::connect(/*Udp6Endpoint const &gateway, uint8_
 	// serialize message
 	m.data[2] = 0; // flags
 	m.data[3] = 0x01; // protocol name/version
-	mqttsn::setUShort(m.data + 4, toSeconds(KEEP_ALIVE_INTERVAL));
+	mqttsn::setUShort(m.data + 4, KEEP_ALIVE_INTERVAL.toSeconds());
 	memcpy(m.data + 6, clientName.data, clientName.length);
 
 	// send message (isSendUpBusy() is guaranteed to be false)

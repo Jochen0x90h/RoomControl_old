@@ -10,20 +10,11 @@
 class UpLink {
 public:
 
-	// platform dependent parameters
-	struct Parameters {
-		// local endpoint (e.g. asio::ip::udp::endpoint(asio::ip::udp::v6(), port))
-		asio::ip::udp::endpoint local;
-
-		// remote endpoint of uplink
-		asio::ip::udp::endpoint remote;
-	};
-
 	/**
 	 * Constructor
 	 * @param parameters platform dependent parameters
 	 */
-	UpLink(Parameters parameters);
+	UpLink();
 
 	virtual ~UpLink();
 
@@ -65,7 +56,7 @@ public:
 private:
 	
 	asio::ip::udp::socket emulatorSocket;
-	asio::ip::udp::endpoint remote;
+	asio::ip::udp::endpoint sender;
 	uint8_t sendBuffer[256];
 	bool sendBusy = false;
 };

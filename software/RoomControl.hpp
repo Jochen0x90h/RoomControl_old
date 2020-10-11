@@ -21,9 +21,8 @@ inline std::ostream &operator << (std::ostream &s, String const &str) {
 class RoomControl : public MqttSnBroker, public Lin, public Clock, public Display, public Poti {
 public:
 
-	RoomControl(UpLink::Parameters const &upParameters, DownLink::Parameters downParameters,
-		Lin::Parameters linParameters)
-		: MqttSnBroker(upParameters, downParameters), Lin(linParameters)
+	RoomControl()
+		: MqttSnBroker(), Lin()
 		, storage(0, FLASH_PAGE_COUNT, localDevices)
 		
 	{

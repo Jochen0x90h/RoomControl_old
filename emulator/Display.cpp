@@ -1,6 +1,6 @@
 #include "Display.hpp"
 #include <boost/bind.hpp>
-#include <iostream>
+#include "global.hpp"
 
 
 Display::~Display() {

@@ -2,7 +2,9 @@
 
 #include "glad/glad.h"
 #include <GLFW/glfw3.h> // http://www.glfw.org/docs/latest/quick_guide.html
+#include "assert.hpp"
 #include "Display.hpp"
+#include <map>
 
 
 /**

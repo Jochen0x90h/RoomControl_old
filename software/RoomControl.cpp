@@ -170,7 +170,7 @@ void RoomControl::onPublished(uint16_t topicId, uint8_t const *data, int length,
 										if (on) {
 											relays |= relayBit1;
 											rs.timeout1 = time + rd.duration1;
-											if (rd.duration1 != SystemDuration())
+											if (rd.duration1 > 0s)
 												nextTimeout = min(nextTimeout, rs.timeout1);
 										} else {
 											relays &= ~relayBit1;
@@ -182,7 +182,7 @@ void RoomControl::onPublished(uint16_t topicId, uint8_t const *data, int length,
 										if (on) {
 											relays |= relayBit2;
 											rs.timeout2 = time + rd.duration2;
-											if (rd.duration2 != SystemDuration())
+											if (rd.duration2 > 0s)
 												nextTimeout = min(nextTimeout, rs.timeout2);
 										} else {
 											relays &= ~relayBit2;
@@ -1072,6 +1072,7 @@ int RoomControl::LocalDevice::flashSize() const {
 		{
 			Switch2Device const *device = reinterpret_cast<Switch2Device const *>(this);
 			
+			// determine length of name including trailing zero if it fits into fixed size string
 			int length = size(device->name);
 			for (int i = 0; i < size(device->name); ++i) {
 				if (device->name[i] == 0) {
@@ -1079,8 +1080,9 @@ int RoomControl::LocalDevice::flashSize() const {
 					break;
 				}
 			}
-			
-			return offsetof(Switch2Device, name) + length;
+
+			// return actual byte size of the struct
+			return intptr_t(&((Switch2Device*)nullptr)->name[length]);
 		}
 	}
 }
@@ -1219,7 +1221,7 @@ SystemTime RoomControl::updateDevices(SystemTime time) {
 						// one or two relays
 						if (relays & relayBit1) {
 							// relay 1 currently on, check if timeout elapsed
-							if (rd.duration1 != SystemDuration() && time >= rs.timeout1) {
+							if (rd.duration1 > 0s && time >= rs.timeout1) {
 								relays &= ~relayBit1;
 								
 								// report state change
@@ -1228,7 +1230,7 @@ SystemTime RoomControl::updateDevices(SystemTime time) {
 						}
 						if (relays & relayBit2) {
 							// relay 2 currently on, check if timeout elapsed
-							if (rd.duration2 != SystemDuration() && time >= rs.timeout2) {
+							if (rd.duration2 > 0s && time >= rs.timeout2) {
 								relays &= ~relayBit2;
 
 								// report state change
