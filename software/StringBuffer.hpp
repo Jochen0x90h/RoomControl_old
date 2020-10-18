@@ -88,7 +88,7 @@ public:
 				this->buffer[this->index++] = '-';
 			value = -dec.value;
 		}
-		this->index += toString(this->buffer + this->index, L - this->index, value, dec.digitCount);
+		this->index += toString(value, this->buffer + this->index, L - this->index, dec.digitCount);
 		this->buffer[this->index] = 0;
 		return *this;
 	}
@@ -111,13 +111,13 @@ public:
 
 	template <typename T>
 	StringBuffer &operator <<(Hex<T> hex) {
-		this->index += hexToString(this->buffer + this->index, L - this->index, hex.value, hex.digitCount);
+		this->index += hexToString(hex.value, this->buffer + this->index, L - this->index, hex.digitCount);
 		this->buffer[this->index] = 0;
 		return *this;
 	}
 	
 	StringBuffer &operator <<(Flt flt) {
-		this->index += toString(this->buffer + this->index, L - this->index, flt.value, flt.digitCount,
+		this->index += toString(flt.value, this->buffer + this->index, L - this->index, flt.digitCount,
 			flt.decimalCount);
 		this->buffer[this->index] = 0;
 		return *this;

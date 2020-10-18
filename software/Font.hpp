@@ -1,7 +1,7 @@
 #pragma once
 
 #include "String.hpp"
-#include <stdint.h>
+#include "defines.hpp"
 
 
 struct Character {

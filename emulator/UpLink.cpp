@@ -15,11 +15,10 @@ UpLink::~UpLink() {
 }
 
 void UpLink::upReceive(uint8_t *data, int length) {
-	std::cout << "receive" << std::endl;
+	//std::cout << "receive" << std::endl;
 	this->emulatorSocket.async_receive_from(boost::asio::buffer(data, length), this->sender,
 		[this] (const boost::system::error_code& error, std::size_t receivedLength) {
-			std::cout << "received " << receivedLength << " bytes from " << this->sender << std::endl;
-
+			//std::cout << "received " << receivedLength << " bytes from " << this->sender << std::endl;
 			onUpReceived(int(receivedLength));
 		}
 	);
@@ -32,7 +31,6 @@ void UpLink::upSend(const uint8_t *data, int length) {
 	this->emulatorSocket.async_send_to(boost::asio::buffer(this->sendBuffer, length), global::upLink,
 		[this] (const boost::system::error_code &error, std::size_t sentLength) {
 			//std::cout << "sent " << sentLength << " bytes " << error.message() << std::endl;
-			
 			this->sendBusy = false;
 			onUpSent();
 		}

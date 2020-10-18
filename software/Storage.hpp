@@ -1,9 +1,9 @@
 #pragma once
 
-#include "assert.hpp"
-#include "util.hpp"
 #include "Flash.hpp"
-#include <stdint.h>
+#include "assert.hpp"
+#include "defines.hpp"
+#include "util.hpp"
 
 /**
  * Flash based storage of multiple arrays of elements with variable size

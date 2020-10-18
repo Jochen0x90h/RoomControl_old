@@ -11,17 +11,6 @@ static char const weekdaysShort[7][4] = {"M", "T", "W", "T", "F", "S", "S"};
 static uint8_t const offOn[2] = {'0', '1'};
 
 
-static int parseInt(uint8_t const *str, int length) {
-	int value = 0;
-	for (int i = 0; i < length; ++i) {
-		uint8_t ch = str[i];
-		if (ch < '0' || ch > '9')
-			return 0x80000000; // invalid
-		value = value * 10 + ch - '0';
-	}
-	return value;
-}
-
 RoomControl::~RoomControl() {
 }
 
@@ -39,8 +28,7 @@ void RoomControl::onUpConnected() {
 void RoomControl::onConnected() {
 	std::cout << "onConnected" << std::endl;
 
-	// register a topic name to obtain a topic id
-	//registerTopic("foo").topicId;
+	// subscribe devices at gateway
 	subscribeDevices();
 }
 
@@ -68,11 +56,22 @@ void RoomControl::onPublished(uint16_t topicId, uint8_t const *data, int length,
 	std::string s((char const*)data, length);
 	std::cout << "onPublished " << topicId << " data " << s << " qos " << int(qos);
 	if (retain)
-		std::cout << " retain" << std::endl;
+		std::cout << " retain";
+	std::cout << std::endl;
+
+	if (retain) {
+		for (Forward forward : forwards) {
+			if (topicId == forward.srcTopic) {
+				std::cout << "forward " << topicId << " -> " << forward.dstTopic << std::endl;
+				publish(forward.dstTopic, data, length, qos);
+			}
+		}
+	}
 
 	// check if this is a command
 	if (retain || length == 0)
 		return;
+	String str(data, length);
 
 	SystemTime time = getSystemTime();
 
@@ -81,122 +80,172 @@ void RoomControl::onPublished(uint16_t topicId, uint8_t const *data, int length,
 
 	// iterate over local devices
 	for (LocalDeviceElement e : this->localDevices) {
-		uint8_t flags = e.flash->device.flags;
 		switch (e.flash->device.type) {
 		case Lin::Device::SWITCH2:
 			{
 				Switch2Device const *device = reinterpret_cast<Switch2Device const *>(e.flash);
 				Switch2State *state = reinterpret_cast<Switch2State *>(e.ram);
 
+				optional<float> value = parseFloat(str);
+
+				uint8_t flags = e.flash->device.flags >> 4;
 				uint8_t relays = state->relays;
-				uint8_t relayBit1 = 0x01;
-				uint8_t f = flags >> 4;
-				for (int i = 0; i < 2; ++i) {
+				uint8_t pressed = state->pressed;
+				uint8_t bit1 = 0x01;
+				for (int i = 0; i < 2; ++i, flags >>= 2, bit1 <<= 2) {
 					Switch2Device::Relays const &rd = device->r[i];
 					Switch2State::Relays &rs = state->r[i];
 
 					if (topicId == rs.topicId1 || topicId == rs.topicId2) {
-						uint8_t relayBit2 = relayBit1 << 1;
-						if ((f & 3) == 3) {
+						uint8_t bit2 = bit1 << 1;
+						uint8_t s = flags & 3;
+						if (s == 3) {
 							// blind (two interlocked relays)
-							if (length == 1) {
-								bool up = data[0] == '+';
-								bool move = up || data[0] == '-';
-
-								if (relays & (relayBit1 | relayBit2)) {
-									// currently moving
-									bool stop = move || (data[0] == '#' && time >= rs.timeout1) ;
-									if (stop) {
-										relays &= ~(relayBit1 | relayBit2);
-									
-										// publish current blind position
-										int pos = (rs.duration * 100 + rd.duration2 / 2) / rd.duration2;
-										//std::cout << "pos " << pos << std::endl;
-										this->buffer << pos;
-										publish(rs.topicId1, this->buffer, 1, true);
-										this->buffer.clear();
-									}
-								} else {
-									// currently stopped
-									if (move) {
-										// start
-										rs.timeout1 = time + rd.duration1;
-										if (up) {
-											// up with extra time
-											rs.timeout2 = time + rd.duration2 - rs.duration + 500ms;
-											relays |= relayBit1;
-										} else {
-											// down with extra time
-											rs.timeout2 = time + rs.duration + 500ms;
-											relays |= relayBit2;
-										}
-										nextTimeout = min(nextTimeout, rs.timeout2);
-									}
-								}
-							} else if (data[length - 1] == '%') {
-								// percentage 0% to 100%
-								relays &= ~(relayBit1 | relayBit2);
-								int percentage = parseInt(data, length - 1);
-								if (percentage == 100) {
+							if (value != null) {
+								// move to position in the range [0, 1]
+								relays &= ~(bit1 | bit2);
+								if (*value >= 1.0f) {
 									// up with extra time
 									rs.timeout2 = time + rd.duration2 - rs.duration + 500ms;
-									relays |= relayBit1;
-								} else if (percentage == 0) {
+									relays |= bit1;
+								} else if (*value <= 0.0f) {
 									// down with extra time
 									rs.timeout2 = time + rs.duration + 500ms;
-									relays |= relayBit2;
-								} else if (percentage > 0 && percentage < 100) {
+									relays |= bit2;
+								} else {
 									// move to target percentage
-									SystemDuration targetDuration = (rd.duration2 * percentage) / 100;
+									SystemDuration targetDuration = rd.duration2 * *value;
 									if (targetDuration > rs.duration) {
 										// up
 										rs.timeout2 = time + targetDuration - rs.duration;
-										relays |= relayBit1;
+										relays |= bit1;
 									} else {
 										// down
 										rs.timeout2 = time + rs.duration - targetDuration;
-										relays |= relayBit2;
+										relays |= bit2;
 									}
 								}
 								nextTimeout = min(nextTimeout, rs.timeout2);
-							}
-						} else if ((f & 3) != 0) {
-							// one or two relays
-							if (length == 1) {
-								bool on = data[0] == '1' || data[0] == '+';
-								bool off = data[0] == '0' || data[0] == '-';
-								if (on || off) {
-									if (topicId == rs.topicId1) {
-										if (on) {
-											relays |= relayBit1;
-											rs.timeout1 = time + rd.duration1;
-											if (rd.duration1 > 0s)
-												nextTimeout = min(nextTimeout, rs.timeout1);
-										} else {
-											relays &= ~relayBit1;
-										}
+							
+							} else if (length == 1) {
+								bool up = data[0] == '+';
+								bool toggle = data[0] == '!';
+								bool press = up || toggle || data[0] == '-';
+								bool release = data[0] == '#';
+								bool p = (pressed & bit1) != 0;
+								if ((!p && press) || (p && release)) {
+									pressed ^= bit1;
+								
+									if (relays & (bit1 | bit2)) {
+										// currently moving
+										bool stop = press || (release && time >= rs.timeout1) ;
+										if (stop) {
+											relays &= ~(bit1 | bit2);
 										
-										// publish current switch state
-										publish(rs.topicId1, &offOn[int(on)], 1, 1, true);
+											// publish current blind position
+											int pos = (rs.duration * 100 + rd.duration2 / 2) / rd.duration2;
+											//std::cout << "pos " << pos << std::endl;
+											this->buffer << pos;
+											publish(rs.topicId1, this->buffer, 1, true);
+											this->buffer.clear();
+										}
 									} else {
-										if (on) {
-											relays |= relayBit2;
-											rs.timeout2 = time + rd.duration2;
-											if (rd.duration2 > 0s)
-												nextTimeout = min(nextTimeout, rs.timeout2);
-										} else {
-											relays &= ~relayBit2;
+										// currently stopped
+										if (press) {
+											// start
+											rs.timeout1 = time + rd.duration1;
+											
+											// use bit2 in pressed to store last direction and decide up/down on toggle
+											if (up || (toggle && (pressed & bit2) == 0)) {
+												// up with extra time
+												rs.timeout2 = time + rd.duration2 - rs.duration + 500ms;
+												relays |= bit1;
+												pressed |= bit2;
+											} else {
+												// down with extra time
+												rs.timeout2 = time + rs.duration + 500ms;
+												relays |= bit2;
+												pressed &= ~bit2;
+											}
+											nextTimeout = min(nextTimeout, rs.timeout2);
 										}
-										
-										// publish current switch state
-										publish(rs.topicId2, &offOn[int(on)], 1, 1, true);
 									}
+								}
+							}
+						} else if (s != 0) {
+							// one or two relays
+							bool on = false;
+							bool change = false;
+							char command = 0;
+							if (value != null) {
+								on = *value != 0.0f;
+								change = true;
+							} else if (length == 1) {
+								command = data[0];
+							}
+							if (topicId == rs.topicId1) {
+								if (command != 0) {
+									if ((pressed & bit1) == 0) {
+										// not pressed
+										bool toggle = command == '!';
+										on = command == '+' || (toggle && (relays & bit1) == 0);
+										if (toggle || on || command == '-') {
+											pressed |= bit1;
+											change = true;
+										}
+									} else {
+										// pressed
+										if (command == '#')
+											pressed &= ~bit1;
+									}
+								}
+								if (change) {
+									if (on) {
+										relays |= bit1;
+										rs.timeout1 = time + rd.duration1;
+										if (rd.duration1 > 0s)
+											nextTimeout = min(nextTimeout, rs.timeout1);
+									} else {
+										relays &= ~bit1;
+									}
+
+									// publish current switch state
+									if ((relays ^ state->relays) & bit1)
+										publish(rs.topicId1, &offOn[int(on)], 1, 1, true);
+								}
+							} else {
+								if (command != 0) {
+									if ((pressed & bit2) == 0) {
+										// not pressed
+										bool toggle = command == '!';
+										on = command == '+' || (toggle && (relays & bit2) == 0);
+										if (toggle || on || command == '-') {
+											pressed |= bit2;
+											change = true;
+										}
+									} else {
+										// pressed
+										if (command == '#')
+											pressed &= ~bit2;
+									}
+								}
+								if (change) {
+									if (on) {
+										relays |= bit2;
+										rs.timeout2 = time + rd.duration2;
+										if (rd.duration2 > 0s)
+											nextTimeout = min(nextTimeout, rs.timeout2);
+									} else {
+										relays &= ~bit2;
+									}
+
+									// publish current switch state
+									if ((relays ^ state->relays) & bit2)
+										publish(rs.topicId2, &offOn[int(on)], 1, 1, true);
 								}
 							}
 						}
 					}
-					relayBit1 <<= 2;
-					f >>= 2;
 				}
 				
 				// send relay state to lin device if it has changed
@@ -204,6 +253,9 @@ void RoomControl::onPublished(uint16_t topicId, uint8_t const *data, int length,
 					state->relays = relays;
 					linSend(e.flash->device.id, &relays, 1);
 				}
+				state->pressed = pressed;
+				if (topicId == 5)
+					std::cout << "pressed " << int(pressed) << std::endl;
 			}
 			break;
 		}
@@ -251,6 +303,9 @@ this->temp.switch2Device.r[1].duration2 = 6500ms;
 			this->localDevices.write(index, &this->temp.localDevice);
 		}
 	}
+	
+	// todo: decide when to subscribe
+	subscribeDevices();
 }
 
 void RoomControl::onLinReceived(uint32_t deviceId, uint8_t const *data, int length) {
@@ -259,11 +314,36 @@ void RoomControl::onLinReceived(uint32_t deviceId, uint8_t const *data, int leng
 			switch (e.flash->device.type) {
 			case Lin::Device::SWITCH2:
 				{
-					uint8_t const commands[] = "#+-";
+					//uint8_t const commands[] = "#+-";
 					Switch2State *state = reinterpret_cast<Switch2State *>(e.ram);
-					
-					publish(state->a, &commands[data[0] & 3], 1, 1, true);
-					publish(state->b, &commands[(data[0] >> 2) & 3], 1, 1, true);
+										
+					uint8_t switches = data[0];
+					uint8_t flags = e.flash->device.flags;
+					uint8_t change = switches ^ state->switches;
+					state->switches = switches;
+					for (int i = 0; i < 2; ++i, switches >>= 2, flags >>= 2, change >>= 2) {
+						uint8_t s = flags & 3;
+						if (s == 3) {
+							// rocker switch
+							uint8_t const commands[] = "#+-";
+
+							// check if state has changed
+							if (change & 3) {
+								publish(state->s[i].topicId1, &commands[switches & 3], 1, 1, true);
+							}
+						} else if (s != 0) {
+							// individual switches
+							uint8_t const commands[] = "#!";
+
+							// check if state has changed
+							if (change & 1) {
+								publish(state->s[i].topicId1, &commands[switches & 1], 1, 1, true);
+							}
+							if (change & 2) {
+								publish(state->s[i].topicId2, &commands[(switches >> 1) & 1], 1, 1, true);
+							}
+						}
+					}
 				}
 				break;
 			}
@@ -1128,6 +1208,36 @@ void RoomControl::subscribeDevices() {
 			{
 				Switch2State *state = reinterpret_cast<Switch2State *>(e.ram);
 				
+				uint8_t flags = e.flash->device.flags;
+				for (int i = 0; i < 2; ++i, flags >>= 2) {
+					   // switches
+					   uint8_t s = flags & 3;
+					   if (s != 0) {
+							   this->buffer.setLength(deviceLength);
+							   this->buffer << 's' << i * 2;
+							   state->s[i].topicId1 = registerTopic(this->buffer).topicId;
+					   }
+					   if (s == 2) {
+							   this->buffer.setLength(deviceLength);
+							   this->buffer << 's' << i * 2 + 1;
+							   state->s[i].topicId2 = registerTopic(this->buffer).topicId;
+					   }
+
+					   // relays
+					   uint8_t r = (flags >> 4) & 3;
+					   if (r != 0) {
+							   this->buffer.setLength(deviceLength);
+							   this->buffer << 'r' << i * 2;
+							   state->r[i].topicId1 = subscribeTopic(this->buffer).topicId;
+					   }
+					   if (r == 2) {
+							   this->buffer.setLength(deviceLength);
+							   this->buffer << 'r' << i * 2 + 1;
+							   state->r[i].topicId2 = subscribeTopic(this->buffer).topicId;
+					   }
+				}
+				
+				/*
 				this->buffer.setLength(deviceLength);
 				this->buffer << "a";
 				state->a = registerTopic(this->buffer).topicId;
@@ -1143,10 +1253,22 @@ void RoomControl::subscribeDevices() {
 				this->buffer.setLength(deviceLength);
 				this->buffer << "y";
 				state->r[1].topicId1 = subscribeTopic(this->buffer).topicId;
+			*/
 			}
 			break;
 		}
 	}
+
+this->forwards[0].srcTopic = subscribeTopic("huasi/00000001/s0").topicId;
+this->forwards[0].dstTopic = registerTopic("huasi/00000001/r0").topicId;
+this->forwards[1].srcTopic = subscribeTopic("huasi/00000001/s2").topicId;
+this->forwards[1].dstTopic = registerTopic("huasi/00000001/r2").topicId;
+this->forwards[2].srcTopic = subscribeTopic("huasi/00000001/s3").topicId;
+this->forwards[2].dstTopic = registerTopic("huasi/00000001/r3").topicId;
+this->forwards[3].srcTopic = subscribeTopic("huasi/00000002/s0").topicId;
+this->forwards[3].dstTopic = registerTopic("huasi/00000002/r0").topicId;
+this->forwards[4].srcTopic = subscribeTopic("huasi/00000002/s2").topicId;
+this->forwards[4].dstTopic = registerTopic("huasi/00000002/r2").topicId;
 
 	this->buffer.clear();
 }
@@ -1200,18 +1322,21 @@ SystemTime RoomControl::updateDevices(SystemTime time) {
 							}
 						
 							// stop if run time has passed
+							int decimalCount;
 							if (time >= rs.timeout2) {
+								// stop
 								relays &= ~(relayBit1 | relayBit2);
+								decimalCount = 3;
 							} else {
 								// calc next timeout
 								nextTimeout = min(nextTimeout, rs.timeout2);
+								decimalCount = 2;
 							}
 							
 							if (report || time >= rs.timeout2) {
 								// publish current position
-								int pos = (rs.duration * 100 + rd.duration2 / 2) / rd.duration2;
-								//std::cout << "pos " << pos << std::endl;
-								this->buffer << pos;
+								float pos = rs.duration / rd.duration2;
+								this->buffer << flt(pos, 0, decimalCount);
 								publish(rs.topicId1, this->buffer, 1, true);
 								this->buffer.clear();
 							}
@@ -1234,7 +1359,7 @@ SystemTime RoomControl::updateDevices(SystemTime time) {
 								relays &= ~relayBit2;
 
 								// report state change
-								publish(rs.topicId1, &offOn[0], 1, 1, true);
+								publish(rs.topicId2, &offOn[0], 1, 1, true);
 							}
 						}
 					}

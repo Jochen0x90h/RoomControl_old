@@ -601,7 +601,7 @@ MqttSnClient::Message MqttSnClient::addSendMessage(int length, mqttsn::MessageTy
 				MessageInfo *info2 = &this->sendMessages[j++];
 				info2->msgId = info->msgId;
 				info2->offset = offset;
-				memcpy(this->sendBuffer + offset, data, length);
+				memmove(this->sendBuffer + offset, data, length);
 				offset += length;
 			}
 

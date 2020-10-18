@@ -8,12 +8,7 @@
 #include "Bitmap.hpp"
 #include "StringBuffer.hpp"
 #include "Storage.hpp"
-#include <iostream>
 
-inline std::ostream &operator << (std::ostream &s, String const &str) {
-	s << std::string(str.data, str.length);
-	return s;
-}
 
 /**
  * Main room control class that inherits platform dependent (hardware or emulator) components
@@ -262,21 +257,25 @@ public:
 			SystemDuration duration;
 		};
 		
+		struct Switches {
+			uint16_t topicId1;
+			uint16_t topicId2;
+		};
+		
 		// current state of switches
 		uint8_t switches;
 		
 		// current state of relays
 		uint8_t relays;
 
-		// additional state for controling the relays
+		// track prssed state of relay commands to filter out double messages
+		uint8_t pressed;
+
+		// additional state for controlling the relays
 		Relays r[2];
 
-
-		// topic id for rocker a
-		uint16_t a;
-		
-		// topic id for rocker b
-		uint16_t b;
+		// additional state for switches
+		Switches s[2];
 	};
 	
 	// subscribe devices to mqtt topics
@@ -298,4 +297,12 @@ public:
 	
 	// time of last update of changing values
 	SystemTime lastUpdateTime;
+
+
+	struct Forward {
+		uint16_t srcTopic;
+		uint16_t dstTopic;
+	};
+
+	Forward forwards[5];
 };

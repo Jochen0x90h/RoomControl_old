@@ -51,6 +51,7 @@ source_group(glad FILES ${GLAD})
 
 # CLion: Software directory is in External Libraries -> Header Search Paths -> Software
 set(SOFTWARE
+	../software/defines.hpp
 	../software/util.hpp
 	../software/Array.hpp
 	../software/Bitmap.cpp

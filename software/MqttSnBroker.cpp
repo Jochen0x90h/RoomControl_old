@@ -32,8 +32,10 @@ MqttSnBroker::TopicResult MqttSnBroker::registerTopic(String topicName) {
 		TopicInfo &topic = getTopic(topicId);
 		
 		// check if we need to register the topic at the gateway
-		if (topic.gatewayTopicId == 0)
+		if (MqttSnClient::isConnected() && topic.gatewayTopicId == 0)
 			result = MqttSnClient::registerTopic(topicName).result;
+	} else {
+		result = Result::OUT_OF_MEMORY;
 	}
 	return {topicId, result};
 }
@@ -64,16 +66,16 @@ MqttSnBroker::TopicResult MqttSnBroker::subscribeTopic(String topicFilter, int8_
 		TopicInfo &topic = getTopic(topicId);
 		
 		// check if we need to subscribe topic at the gateway
-		if (qos > topic.getMaxQos())
+		if (MqttSnClient::isConnected() && qos > topic.getMaxQos())
 			result = MqttSnClient::subscribeTopic(topicFilter, qos).result;
 
-		if (result == Result::OK) {
-			//todo
-			// check if there is a retained message for this topic
+		//todo
+		// check if there is a retained message for this topic
 			
-			// set subscription quality of service
-			topic.setQos(LOCAL_CLIENT_INDEX, qos);
-		}
+		// set subscription quality of service
+		topic.setQos(LOCAL_CLIENT_INDEX, qos);
+	} else {
+		result = Result::OUT_OF_MEMORY;
 	}
 	return {topicId, result};
 }
@@ -82,21 +84,23 @@ MqttSnBroker::TopicResult MqttSnBroker::subscribeTopic(String topicFilter, int8_
 // MqttSnClient user callbacks
 // ---------------------------
 
-void MqttSnBroker::onRegistered(uint16_t msgId, String topicName, uint16_t topicId) {
-	uint16_t localTopicId = getTopicId(topicName);
-	std::cout << topicName << " -> " << localTopicId << " " << topicId << std::endl;
-	if (localTopicId != 0) {
-		TopicInfo &topic = getTopic(localTopicId);
-		topic.gatewayTopicId = topicId;
+void MqttSnBroker::onRegistered(uint16_t msgId, String topicName, uint16_t gatewayTopicId) {
+	// topic was registered at gateway
+	uint16_t topicId = getTopicId(topicName);
+	std::cout << topicName << " -> " << topicId << " " << gatewayTopicId << std::endl;
+	if (topicId != 0) {
+		TopicInfo &topic = getTopic(topicId);
+		topic.gatewayTopicId = gatewayTopicId;
 	}
 }
 
-void MqttSnBroker::onSubscribed(uint16_t msgId, String topicName, uint16_t topicId, int8_t qos) {
-	uint16_t localTopicId = getTopicId(topicName);
-	std::cout << topicName << " -> " << localTopicId << " " << topicId << std::endl;
-	if (localTopicId != 0) {
-		TopicInfo &topic = getTopic(localTopicId);
-		topic.gatewayTopicId = topicId;
+void MqttSnBroker::onSubscribed(uint16_t msgId, String topicName, uint16_t gatewayTopicId, int8_t qos) {
+	// topic was subscribed at gateway
+	uint16_t topicId = getTopicId(topicName);
+	std::cout << topicName << " -> " << topicId << " " << gatewayTopicId << std::endl;
+	if (topicId != 0) {
+		TopicInfo &topic = getTopic(topicId);
+		topic.gatewayTopicId = gatewayTopicId;
 		topic.gatewayQos = qos;
 	}
 }
@@ -638,7 +642,7 @@ uint16_t MqttSnBroker::getTopicId(String name) {
 	// if neither found the topic by hash nor an empty topic, add a new topic
 	if (empty == -1) {
 		if (this->topicCount >= MAX_TOPIC_COUNT)
-			return 0;
+			return 0; // OUT_OF_MEMORY error
 		empty = this->topicCount++;
 	}
 	

@@ -98,7 +98,7 @@ protected:
 
 // MqttSnClient user callbacks
 // ---------------------------
-
+	
 	void onRegistered(uint16_t msgId, String topicName, uint16_t topicId) override;
 
 	void onSubscribed(uint16_t msgId, String topicName, uint16_t topicId, int8_t qos) override;

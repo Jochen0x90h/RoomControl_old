@@ -1,5 +1,7 @@
 #pragma once
 
+#include "defines.hpp"
+
 
 /**
  * System duration, 1/1024 seconds
@@ -42,6 +44,10 @@ constexpr SystemDuration operator -(SystemDuration const &a, SystemDuration cons
 
 constexpr SystemDuration operator *(SystemDuration const &a, int b) {
 	return {a.value * b};
+}
+
+constexpr SystemDuration operator *(SystemDuration const &a, float b) {
+	return {int(float(a.value) * b + (a.value < 0 ? -0.5f : 0.5f))};
 }
 
 constexpr SystemDuration operator /(SystemDuration const &a, int b) {

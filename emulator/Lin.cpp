@@ -3,8 +3,8 @@
 #include <iostream>
 
 static Lin::Device devices[] = {
-	{0x00000001, Lin::Device::SWITCH2, 0x9f},
-	{0x00000002, Lin::Device::SWITCH2, 0xff},
+	{0x00000001, Lin::Device::SWITCH2, 0x9b},
+	{0x00000002, Lin::Device::SWITCH2, 0xfb},
 };
 
 
@@ -65,7 +65,7 @@ void Lin::doGui(int &id) {
 			if ((flags & 0x0f) != 0) {
 				int rocker = gui->doubleRocker(id++);
 				if (rocker != -1) {
-					std::cout << rocker << std::endl;
+					//std::cout << rocker << std::endl;
 					this->receiveData[0] = uint8_t(rocker);
 					onLinReceived(device.id, this->receiveData, 1);
 				}

@@ -19,8 +19,8 @@ public:
 			 * 2 channel switch with actuators
 			 * Flags for switch side A, bits 0-1: 0 = no switch, 1 = one button, 2 = two independent buttons, 3 = rocker switch
 			 * Flags for switch side B, bits 2-3: 0 = no switch, 1 = one button, 2 = two independent buttons, 3 = rocker switch
-			 * Flags for relay side X: bit 4-5: 0 = no relay, 1 = one relay, 2 = two relays, 3 = two interlocked relays for blind
-			 * Flags for relay side Y: bit 6-7: 0 = no relay, 1 = one relay, 2 = two relays, 3 = two interlocked relays for blind
+			 * Flags for relay side A: bit 4-5: 0 = no relay, 1 = one relay, 2 = two relays, 3 = two interlocked relays for blind
+			 * Flags for relay side B: bit 6-7: 0 = no relay, 1 = one relay, 2 = two relays, 3 = two interlocked relays for blind
 			 */
 			SWITCH2 = 1
 		};

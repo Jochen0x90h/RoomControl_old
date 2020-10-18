@@ -165,7 +165,10 @@ public:
 		INVALID_STATE,
 		
 		// client is busy processing a request
-		BUSY
+		BUSY,
+		
+		// out of memory, e.g. send buffer full or no more space for topics
+		OUT_OF_MEMORY
 	};
 
 	struct MessageResult {

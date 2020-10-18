@@ -2,22 +2,22 @@
 #include "util.hpp"
 
 
-optional<int> toInt(char const *str, int length) {
-	if (length <= 0)
+optional<int> parseInt(String str) {
+	if (str.length <= 0)
 		return nullptr;
 
 	// check for sign
 	int i = 0;
 	bool minus = str[0] == '-';
 	if (minus || str[0] == '+') {
-		if (length == 1)
+		if (str.length == 1)
 			return nullptr;
 		i = 1;
 	}
 
 	// parse integer
 	int value = 0;
-	for (; i < length; ++i) {
+	for (; i < str.length; ++i) {
 		uint8_t ch = str[i];
 		if (ch >= '0' && ch <= '9') {
 			value = value * 10 + ch - '0';
@@ -30,26 +30,26 @@ optional<int> toInt(char const *str, int length) {
 	return minus ? -value : value;
 }
 
-optional<float> toFloat(char const *str, int length) {
-	if (length <= 0)
+optional<float> parseFloat(String str) {
+	if (str.length <= 0)
 		return nullptr;
 	
 	// check for sign
 	int i = 0;
 	bool minus = str[0] == '-';
 	if (minus || str[0] == '+') {
-		if (length == 1)
+		if (str.length == 1)
 			return nullptr;
 		i = 1;
 	}
 	
 	// check if there is only a decimal point
-	if (length == i + 1 && str[i] == '.')
+	if (str.length == i + 1 && str[i] == '.')
 		return nullptr;
 	
 	// parse integer part
 	float value = 0.0f;
-	for (; i < length; ++i) {
+	for (; i < str.length; ++i) {
 		char ch = str[i];
 		if (ch == '.') {
 			++i;
@@ -65,7 +65,7 @@ optional<float> toFloat(char const *str, int length) {
 	
 	// parse decimal places
 	float decimal = 1.0f;
-	for (; i < length; ++i) {
+	for (; i < str.length; ++i) {
 		char ch = str[i];
 		if (ch >= '0' && ch <= '9') {
 			float digit = ch - '0';
@@ -80,7 +80,7 @@ optional<float> toFloat(char const *str, int length) {
 	return minus ? -value : value;
 }
 
-int toString(char *str, int length, uint32_t value, int digitCount) {
+int toString(uint32_t value, char *str, int length, int digitCount) {
 	// enforce valid parameters
 	if (digitCount > 10)
 		digitCount = 10;
@@ -106,7 +106,7 @@ int toString(char *str, int length, uint32_t value, int digitCount) {
 
 static char const *hexTable = "0123456789abcdef";
 
-int hexToString(char *str, int length, uint32_t value, int digitCount) {
+int hexToString(uint32_t value, char *str, int length, int digitCount) {
 	int l = min(length, digitCount);
 	for (int i = 0; i < l; ++i) {
 		str[i] = hexTable[(value >> (digitCount - 1 - i) * 4) & 0xf];
@@ -124,7 +124,7 @@ static float const powTable[] = {1.0f,
 	10000.0f, 100000.0f, 1000000.0f,
 	10000000.0f, 100000000.0f, 1000000000.0f};
 
-int toString(char *str, int length, float value, int digitCount, int decimalCount) {
+int toString(float value, char *str, int length, int digitCount, int decimalCount) {
 	// enforce valid parameters
 	if (decimalCount > 9)
 		decimalCount = 9;
@@ -148,7 +148,7 @@ int toString(char *str, int length, float value, int digitCount, int decimalCoun
 	uint32_t fpart = uint32_t((value - float(ipart)) * powTable[decimalCount]);
 
 	// convert integer part
-	i += toString(str + i, length - i, ipart, (fpart == 0 && digitCount == 0) ? 1 : digitCount);
+	i += toString(ipart, str + i, length - i, (fpart == 0 && digitCount == 0) ? 1 : digitCount);
 
 	// convert decimal part
 	if (fpart != 0 && decimalCount > 0 && i < length) {

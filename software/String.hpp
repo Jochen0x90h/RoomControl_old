@@ -1,7 +1,8 @@
 #pragma once
 
-#include <stdint.h>
+#include "defines.hpp"
 #include <iostream>
+
 
 // helper classes for distinguishing between fixed size array and c-string
 struct False {};
