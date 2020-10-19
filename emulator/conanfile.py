@@ -26,6 +26,7 @@ class Project(ConanFile):
     version = get_version()
     description = "Emulator for RoomControl firmware"
     url = ""
+    license="CC-BY-NC-SA-4.0"
     settings = "os", "compiler", "build_type", "arch"
     options = {
         "debug": [False, True]}

@@ -17,12 +17,12 @@ struct SystemDuration {
 		return value >> 10;
 	}
 
-	constexpr SystemDuration &operator +=(SystemDuration const &b) {
+	constexpr SystemDuration &operator +=(SystemDuration b) {
 		this->value += b.value;
 		return *this;
 	}
 	
-	constexpr SystemDuration &operator -=(SystemDuration const &b) {
+	constexpr SystemDuration &operator -=(SystemDuration b) {
 		this->value -= b.value;
 		return *this;
 	}
@@ -34,23 +34,23 @@ struct SystemDuration {
 	
 };
 
-constexpr SystemDuration operator +(SystemDuration const &a, SystemDuration const &b) {
+constexpr SystemDuration operator +(SystemDuration a, SystemDuration b) {
 	return {a.value + b.value};
 }
 
-constexpr SystemDuration operator -(SystemDuration const &a, SystemDuration const &b) {
+constexpr SystemDuration operator -(SystemDuration a, SystemDuration b) {
 	return {a.value - b.value};
 }
 
-constexpr SystemDuration operator *(SystemDuration const &a, int b) {
+constexpr SystemDuration operator *(SystemDuration a, int b) {
 	return {a.value * b};
 }
 
-constexpr SystemDuration operator *(SystemDuration const &a, float b) {
+constexpr SystemDuration operator *(SystemDuration a, float b) {
 	return {int(float(a.value) * b + (a.value < 0 ? -0.5f : 0.5f))};
 }
 
-constexpr SystemDuration operator /(SystemDuration const &a, int b) {
+constexpr SystemDuration operator /(SystemDuration a, int b) {
 	return {a.value / b};
 }
 
@@ -58,23 +58,23 @@ constexpr SystemDuration operator /(SystemDuration const &a, int b) {
  * Divide to durations
  * @return quotient as float
  */
-constexpr float operator /(SystemDuration const &a, SystemDuration const &b) {
+constexpr float operator /(SystemDuration a, SystemDuration b) {
 	return float(a.value) / float(b.value);
 }
 
-constexpr bool operator <(SystemDuration const &a, SystemDuration const &b) {
+constexpr bool operator <(SystemDuration a, SystemDuration b) {
 	return a.value < b.value;
 }
 
-constexpr bool operator <=(SystemDuration const &a, SystemDuration const &b) {
+constexpr bool operator <=(SystemDuration a, SystemDuration b) {
 	return a.value <= b.value;
 }
 
-constexpr bool operator >(SystemDuration const &a, SystemDuration const &b) {
+constexpr bool operator >(SystemDuration a, SystemDuration b) {
 	return a.value > b.value;
 }
 
-constexpr bool operator >=(SystemDuration const &a, SystemDuration const &b) {
+constexpr bool operator >=(SystemDuration a, SystemDuration b) {
 	return a.value >= b.value;
 }
 
@@ -86,42 +86,42 @@ constexpr bool operator >=(SystemDuration const &a, SystemDuration const &b) {
 struct SystemTime {
 	uint32_t value;
 		
-	constexpr SystemTime &operator +=(SystemDuration const &b) {
+	constexpr SystemTime &operator +=(SystemDuration b) {
 		this->value += b.value;
 		return *this;
 	}
 	
-	constexpr SystemTime &operator -=(SystemDuration const &b) {
+	constexpr SystemTime &operator -=(SystemDuration b) {
 		this->value -= b.value;
 		return *this;
 	}
 };
 
-constexpr SystemTime operator +(SystemTime const &a, SystemDuration const &b) {
+constexpr SystemTime operator +(SystemTime a, SystemDuration b) {
 	return {a.value + b.value};
 }
 
-constexpr SystemTime operator -(SystemTime const &a, SystemDuration const &b) {
+constexpr SystemTime operator -(SystemTime a, SystemDuration b) {
 	return {a.value - b.value};
 }
 
-constexpr SystemDuration operator -(SystemTime const &a, SystemTime const &b) {
+constexpr SystemDuration operator -(SystemTime a, SystemTime b) {
 	return {int32_t(a.value - b.value)};
 }
 
-constexpr bool operator <(SystemTime const &a, SystemTime const &b) {
+constexpr bool operator <(SystemTime a, SystemTime b) {
 	return int32_t(a.value - b.value) < 0;
 }
 
-constexpr bool operator <=(SystemTime const &a, SystemTime const &b) {
+constexpr bool operator <=(SystemTime a, SystemTime b) {
 	return int32_t(a.value - b.value) <= 0;
 }
 
-constexpr bool operator >(SystemTime const &a, SystemTime const &b) {
+constexpr bool operator >(SystemTime a, SystemTime b) {
 	return int32_t(a.value - b.value) > 0;
 }
 
-constexpr bool operator >=(SystemTime const &a, SystemTime const &b) {
+constexpr bool operator >=(SystemTime a, SystemTime b) {
 	return int32_t(a.value - b.value) >= 0;
 }
 
@@ -135,3 +135,22 @@ constexpr SystemDuration operator "" ms(unsigned long long ms) {
 constexpr SystemDuration operator "" s(unsigned long long s) {
 	return {int32_t(s * 1024)};
 }
+
+
+
+
+struct SystemTime16 {
+	uint16_t value;
+
+	constexpr SystemTime16 &operator =(SystemTime t) {
+		this->value = uint16_t(t.value);
+		return *this;
+	}
+	
+	constexpr SystemTime expand(SystemTime t) {
+		int carry = int(uint16_t(t.value) < this->value);
+		return {(t.value & 0xffff0000) + this->value - (carry << 16)};
+	}
+};
+
+

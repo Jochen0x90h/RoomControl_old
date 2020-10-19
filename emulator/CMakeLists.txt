@@ -104,10 +104,8 @@ set(EMULATOR
 	Clock.hpp
 	#Udp6.cpp
 	#Udp6.hpp
-	UpLink.cpp
-	UpLink.hpp
-	DownLink.cpp
-	DownLink.hpp
+	Network.cpp
+	Network.hpp
 	Lin.cpp
 	Lin.hpp
 	Display.cpp
@@ -148,10 +146,8 @@ add_executable(testBroker
 	../software/MqttSnBroker.cpp
 	../software/MqttSnBroker.hpp
 	../software/SystemTime.hpp
-	UpLink.cpp
-	UpLink.hpp
-	DownLink.cpp
-	DownLink.hpp
+	Network.cpp
+	Network.hpp
 	SystemTimer.cpp
 	SystemTimer.hpp
 	global.cpp

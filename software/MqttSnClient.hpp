@@ -1,6 +1,6 @@
 #pragma once
 
-#include "UpLink.hpp"
+#include "Network.hpp"
 #include "SystemTimer.hpp"
 #include "String.hpp"
 
@@ -37,7 +37,7 @@ enum MessageType {
 	WILLMSGUPD = 0x1c,
 	WILLMSGRESP = 0x1d,
 	ENCAPSULATED = 0xfe,
-	UNKNOWN_MESSAGE_TYPE = 0xff
+	//UNKNOWN_MESSAGE_TYPE = 0xff
 };
 
 enum class TopicType {
@@ -102,7 +102,7 @@ inline void setUShort(uint8_t *buffer, uint16_t value) {
  * Inherits platform dependent (hardware or emulator) components for network and timing
  * Gateway search is removed as we know that our gateway is always on the other side of the up-link
  */
-class MqttSnClient : public SystemTimer, public UpLink {
+class MqttSnClient : public SystemTimer, public Network {
 public:
 
 	// Port the MQTT-SN client binds to
@@ -338,14 +338,14 @@ protected:
 	 * @param error type
 	 * @param messageType message type when known
 	 */
-	virtual void onError(int error, mqttsn::MessageType messageType = mqttsn::UNKNOWN_MESSAGE_TYPE) = 0;
+	virtual void onError(int error, mqttsn::MessageType messageType) = 0;
 
 protected:
 
 // transport
 // ---------
 
-	void onUpReceived(int length) override;
+	void onUpReceived(uint8_t const *data, int length) override;
 
 	void onUpSent() override;
 
@@ -355,10 +355,13 @@ private:
 
 // internal
 // --------
-	
+
 	struct MessageInfo {
 		// offset in message buffer
 		uint16_t offset;
+
+		// length of message
+		uint16_t length;
 
 		// message id
 		uint16_t msgId;
@@ -368,15 +371,15 @@ private:
 	};
 
 	struct Message {
-		MessageInfo *info;
 		uint8_t *data;
+		int length;
 	};
 
 	// Get a message id. Use only for retries of the same message until it was acknowledged by the gateway
 	uint16_t getNextMsgId() {return this->nextMsgId = this->nextMsgId == 0xffff ? 1 : this->nextMsgId + 1;}
 
 	// allocate a send message with given length or 0 if no space available
-	Message addSendMessage(int length, mqttsn::MessageType type);
+	Message addSendMessage(int length, uint16_t msgId = 0);
 
 	// send the current message and make next message current or try to garbage collect it if msgId is zero
 	void sendCurrentMessage();
@@ -384,11 +387,8 @@ private:
 	// resend oldest message that is still in the queue
 	void resend();
 
-	// get a previously sent message by id
-	Message getSentMessage(uint16_t msgId);
-
 	// remove sent message with given id from message queue
-	uint8_t *removeSentMessage(uint16_t msgId, mqttsn::MessageType type);
+	Message removeSentMessage(uint16_t msgId, mqttsn::MessageType type);
 	
 	// state
 	State state = State::STOPPED;
@@ -412,7 +412,7 @@ private:
 
 	// receive message buffer
 	//Udp6Endpoint sender;
-	uint8_t receiveMessage[MAX_MESSAGE_LENGTH];
+	//uint8_t receiveMessage[MAX_MESSAGE_LENGTH];
 		
 	bool resendPending = false;
 };

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "DownLink.hpp"
 #include "MqttSnClient.hpp"
 #include "StringBuffer.hpp"
 
@@ -9,7 +8,7 @@
  * MQTT-SN broker that serves down-links and connects to a gateway using MqttSnClient
  * Wireless implementation of should prioritize sending via DownLink over sending via UpLink to prevent congestion of broker
  */
-class MqttSnBroker : public DownLink, public MqttSnClient {
+class MqttSnBroker : public MqttSnClient {
 public:
 	// maximum number of remote clients that can connect
 	static constexpr int MAX_CLIENT_COUNT = 31;
@@ -110,7 +109,7 @@ protected:
 // transport
 // ---------
 
-	void onDownReceived(uint16_t clientId, int length) override;
+	void onDownReceived(uint16_t clientId, uint8_t const *data, int length) override;
 	
 	void onDownSent() override;
 
@@ -159,7 +158,7 @@ private:
 		// return true if at least one remote client has subscribed to the topic
 		bool isRemoteSubscribed();
 		
-		// get maximum quality of service of all client subscriptions (remote and local)
+		// get maximum quality of service of all remote client subscriptions
 		int8_t getMaxQos();
 		
 		int8_t getQos(int clientIndex) {
@@ -173,12 +172,23 @@ private:
 		int8_t clearQos(int clientIndex);
 	};
 
+	union ClientSet {
+		// set contains only one client
+		uint16_t clientId;
+		
+		// set contains multiple clients indicated by flags referencing the clients array
+		uint32_t flags[(MAX_CLIENT_COUNT + 1 + 31) / 32];
+	};
+	
 	struct MessageInfo {
 		// a flag for each client in clients array. If bit 0 is set, a client id is in bits 1-16
-		uint32_t clients[(MAX_CLIENT_COUNT + 1 + 31) / 32];
+		ClientSet clientSet;
 		
 		// offset in message buffer
 		uint16_t offset;
+
+		// length of message
+		uint16_t length;
 
 		// message id
 		uint16_t msgId;
@@ -188,8 +198,8 @@ private:
 	};
 
 	struct Message {
-		MessageInfo *info;
 		uint8_t *data;
+		//int length;
 	};
 
 	// Find client by id. Returns nullptr if not found
@@ -227,7 +237,7 @@ private:
 	uint16_t getNextMsgId() {return this->nextMsgId = this->nextMsgId == 0xffff ? 1 : this->nextMsgId + 1;}
 
 	// allocate a send message with given length or 0 if no space available
-	Message addSendMessage(int length, mqttsn::MessageType type);
+	Message addSendMessage(int length, ClientSet clientSet, uint16_t msgId = 0);
 
 	// send the current message and make next message current or try to garbage collect it if msgId is zero
 	void sendCurrentMessage();
@@ -272,9 +282,6 @@ private:
 	int sendBufferFill = 0;
 	uint8_t sendBuffer[SEND_BUFFER_SIZE];
 	bool busy = false;
-
-	// receive message buffer
-	uint8_t receiveMessage[MAX_MESSAGE_LENGTH];
 
 	bool resendPending = false;
 };

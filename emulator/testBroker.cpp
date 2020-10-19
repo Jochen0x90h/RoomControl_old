@@ -26,11 +26,19 @@ public:
 class MyClient : public MqttSnClient {
 public:
 
-// UpLink
-// ------
+// Network
+// -------
 
 	void onUpConnected() override {
 		connect("myClient");
+	}
+
+	void onDownReceived(uint16_t clientId, uint8_t const *data, int length) override {
+	
+	}
+	
+	void onDownSent() override {
+	
 	}
 
 
@@ -80,8 +88,8 @@ public:
 class MyBroker : public MqttSnBroker {
 public:
 
-// UpLink
-// ------
+// Network
+// -------
 	
 	void onUpConnected() override {
 		connect("myClient");
@@ -189,7 +197,6 @@ int main(int argc, const char **argv) {
 	asio::ip::address localhost = asio::ip::address::from_string("::1", ec);
 	global::local = asio::ip::udp::endpoint(asio::ip::udp::v6(), 1337);
 	global::upLink = asio::ip::udp::endpoint(localhost, 47193);
-	global::downLocal = asio::ip::udp::endpoint(asio::ip::udp::v6(), 1338);
 
 	//testSystemTimer();
 	//testClient();

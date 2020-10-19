@@ -4,9 +4,7 @@
 constexpr int8_t min(int8_t x, int8_t y) {return x < y ? x : y;}
 
 
-MqttSnBroker::MqttSnBroker()
-	: MqttSnClient(), DownLink()
-{
+MqttSnBroker::MqttSnBroker() {
 	// init clients
 	for (int i = 0; i < MAX_CLIENT_COUNT; ++i) {
 		ClientInfo &client = this->clients[i];
@@ -124,53 +122,35 @@ mqttsn::ReturnCode MqttSnBroker::onPublish(uint16_t topicId, uint8_t const *data
 // transport
 // ---------
 
-void MqttSnBroker::onDownReceived(uint16_t clientId, int length) {
-	// check if length and message type are present
-	if (length < 2) {
-		onError(ERROR_MESSAGE);
-		return;
-	}
-	uint8_t const *data = this->receiveMessage;
-
-	// get message length
-	int messageLength = data[0];
-		
+void MqttSnBroker::onDownReceived(uint16_t clientId, uint8_t const *data, int length) {
 	// get message type
-	mqttsn::MessageType messageType = mqttsn::MessageType(data[1]);
-
-	// check if message has valid length and fits into buffer
-	if (messageLength < 2 || messageLength > length) {
-		onError(ERROR_MESSAGE, messageType);
-		return;
-	}
-	
-	// overwrite length to prevent using trailing data
-	length = messageLength;
+	mqttsn::MessageType messageType = mqttsn::MessageType(data[0]);
 
 	switch (messageType) {
 	case mqttsn::CONNECT:
 		// a new client connects
-		if (length < 7) {
+		if (length < 6) {
 			onError(ERROR_MESSAGE, messageType);
 		} else {
 			// create reply message
-			Message m = addSendMessage(3, mqttsn::CONNACK);
-			if (m.info != nullptr) {
-				m.info->clients[0] = clientId;
+			Message m = addSendMessage(2, {clientId});
+			if (m.data != nullptr) {
+				// serialize message
+				m.data[0] = mqttsn::CONNACK;
 				
 				// add new client
 				ClientInfo *client = findClient(0);
 				if (client != nullptr) {
-					uint8_t flags = data[2];
-					uint8_t protocolId = data[3];
-					uint16_t duration = mqttsn::getUShort(data + 4);
-					String clientName(data + 6, length - 6);
+					uint8_t flags = data[1];
+					uint8_t protocolId = data[2];
+					uint16_t duration = mqttsn::getUShort(data + 3);
+					String clientName(data + 5, length - 5);
 					client->name << clientName;
 
-					m.data[2] = uint8_t(mqttsn::ReturnCode::ACCEPTED);
+					m.data[1] = uint8_t(mqttsn::ReturnCode::ACCEPTED);
 				} else {
 					// error: too many clients
-					m.data[2] = uint8_t(mqttsn::ReturnCode::REJECTED_CONGESTED);
+					m.data[1] = uint8_t(mqttsn::ReturnCode::REJECTED_CONGESTED);
 				}
 
 				// send message
@@ -185,16 +165,18 @@ void MqttSnBroker::onDownReceived(uint16_t clientId, int length) {
 		// a client disconnects or wants to go asleep
 		{
 			// create reply message
-			Message m = addSendMessage(2, mqttsn::DISCONNECT);
-			if (m.info != nullptr) {
-				m.info->clients[0] = clientId;
+			Message m = addSendMessage(1, {clientId});
+			if (m.data != nullptr) {
+				// serialize message
+				m.data[0] = mqttsn::DISCONNECT;
 
-				// find client
+				// disconnect client
 				ClientInfo *client = findClient(clientId);
 				if (client != nullptr) {
+					// todo: handle duration
 					uint16_t duration = 0;
-					if (length >= 4)
-						duration = mqttsn::getUShort(data + 2);
+					if (length >= 3)
+						duration = mqttsn::getUShort(data + 1);
 
 					client->disconnect();
 					
@@ -214,25 +196,27 @@ void MqttSnBroker::onDownReceived(uint16_t clientId, int length) {
 		break;
 	case mqttsn::REGISTER:
 		// client wants to register a topic so that it can publish to it
-		if (length < 7) {
+		if (length < 6) {
 			onError(ERROR_MESSAGE, messageType);
 		} else {
 			// get client
 			ClientInfo *client = findClient(clientId);
 			if (client != nullptr) {
 				// deserialize message
-				uint16_t msgId = mqttsn::getUShort(data + 4);
-				String topicName(data + 6, length - 6);
+				uint16_t msgId = mqttsn::getUShort(data + 3);
+				String topicName(data + 5, length - 5);
 
 				// create reply message
-				Message m = addSendMessage(7, mqttsn::REGACK);
-				if (m.info != nullptr) {
-					m.info->clients[0] = clientId;
-					mqttsn::setUShort(m.data + 4, msgId);
+				Message m = addSendMessage(6, {clientId});
+				if (m.data != nullptr) {
+					// serialize message
+					m.data[0] = mqttsn::REGACK;
+					mqttsn::setUShort(m.data + 3, msgId);
 
 					// get or add topic by name
 					uint16_t topicId = getTopicId(topicName);
 					if (topicId != 0) {
+						mqttsn::setUShort(m.data + 1, topicId);
 						TopicInfo &topic = getTopic(topicId);
 						
 						// check if we need to register the topic at gateway
@@ -242,17 +226,15 @@ void MqttSnBroker::onDownReceived(uint16_t clientId, int length) {
 						
 						if (result == Result::OK) {
 							// serialize reply message
-							mqttsn::setUShort(m.data + 2, topicId);
-							m.data[6] = uint8_t(mqttsn::ReturnCode::ACCEPTED);
+							m.data[5] = uint8_t(mqttsn::ReturnCode::ACCEPTED);
 						} else {
 							// error: could not register at gateway
-							mqttsn::setUShort(m.data + 2, topicId);
-							m.data[6] = uint8_t(mqttsn::ReturnCode::REJECTED_CONGESTED);
+							m.data[5] = uint8_t(mqttsn::ReturnCode::REJECTED_CONGESTED);
 						}
 					} else {
 						// error: could not allocate a topic id
-						mqttsn::setUShort(m.data + 2, 0);
-						m.data[6] = uint8_t(mqttsn::ReturnCode::REJECTED_CONGESTED);
+						mqttsn::setUShort(m.data + 1, 0);
+						m.data[5] = uint8_t(mqttsn::ReturnCode::REJECTED_CONGESTED);
 					}
 
 					// send reply message
@@ -269,29 +251,30 @@ void MqttSnBroker::onDownReceived(uint16_t clientId, int length) {
 		break;
 	case mqttsn::PUBLISH:
 		// client wants to publish a message on a topic
-		if (length < 7) {
+		if (length < 6) {
 			onError(ERROR_MESSAGE, messageType);
 		} else {
 			// get client
 			ClientInfo *client = findClient(clientId);
 			if (client != nullptr) {
 				// deserialize message
-				uint8_t flags = data[2];
+				uint8_t flags = data[1];
 				bool dup = mqttsn::getDup(flags);
 				int8_t qos = mqttsn::getQos(flags);
 				bool retain = mqttsn::getRetain(flags);
 				mqttsn::TopicType topicType = mqttsn::getTopicType(flags);
-				uint16_t topicId = mqttsn::getUShort(data + 3);
-				uint16_t msgId = mqttsn::getUShort(data + 5);
-				uint8_t const *payload = data + 7;
-				int payloadLength = length - 7;
+				uint16_t topicId = mqttsn::getUShort(data + 2);
+				uint16_t msgId = mqttsn::getUShort(data + 4);
+				uint8_t const *payload = data + 6;
+				int payloadLength = length - 6;
 
 				// create reply message
-				Message m = addSendMessage(7, mqttsn::PUBACK);
-				if (m.info != nullptr) {
-					m.info->clients[0] = clientId;
-					mqttsn::setUShort(m.data + 2, topicId);
-					mqttsn::setUShort(m.data + 4, msgId);
+				Message m = addSendMessage(6, {clientId});
+				if (m.data != nullptr) {
+					// serialize message
+					m.data[0] = mqttsn::PUBACK;
+					mqttsn::setUShort(m.data + 1, topicId);
+					mqttsn::setUShort(m.data + 3, msgId);
 
 					if (topicType == mqttsn::TopicType::NORMAL) {
 						// find topic by id
@@ -307,18 +290,18 @@ void MqttSnBroker::onDownReceived(uint16_t clientId, int length) {
 									MqttSnClient::publish(topic->gatewayTopicId, data, length, min(qos, topic->gatewayQos), retain);
 
 								// serialize reply message
-								m.data[6] = uint8_t(mqttsn::ReturnCode::ACCEPTED);
+								m.data[5] = uint8_t(mqttsn::ReturnCode::ACCEPTED);
 							} else {
 								// error: uplink or downlink congested
-								m.data[6] = uint8_t(mqttsn::ReturnCode::REJECTED_CONGESTED);
+								m.data[5] = uint8_t(mqttsn::ReturnCode::REJECTED_CONGESTED);
 							}
 						} else {
 							// error: topic not found
-							m.data[6] = uint8_t(mqttsn::ReturnCode::REJECTED_INVALID_TOPIC_ID);
+							m.data[5] = uint8_t(mqttsn::ReturnCode::REJECTED_INVALID_TOPIC_ID);
 						}
 					} else {
 						// error: topic type not supported
-						m.data[6] = uint8_t(mqttsn::ReturnCode::NOT_SUPPORTED);
+						m.data[5] = uint8_t(mqttsn::ReturnCode::NOT_SUPPORTED);
 					}
 
 					// send reply message
@@ -335,7 +318,7 @@ void MqttSnBroker::onDownReceived(uint16_t clientId, int length) {
 		break;
 	case mqttsn::PUBACK:
 		// sent by the client in response to a PUBLISH message (if qos was greater zero)
-		if (length < 7) {
+		if (length < 6) {
 			onError(ERROR_MESSAGE, messageType);
 		} else {
 			// get client
@@ -343,9 +326,9 @@ void MqttSnBroker::onDownReceived(uint16_t clientId, int length) {
 			if (client != nullptr) {
 
 				// deserialize message
-				uint16_t topicId = mqttsn::getUShort(data + 2);
-				uint16_t msgId = mqttsn::getUShort(data + 4);
-				mqttsn::ReturnCode returnCode = mqttsn::ReturnCode(data[6]);
+				uint16_t topicId = mqttsn::getUShort(data + 1);
+				uint16_t msgId = mqttsn::getUShort(data + 3);
+				mqttsn::ReturnCode returnCode = mqttsn::ReturnCode(data[5]);
 				
 				// mark this client as done and remove PUBLISH message from queue if all are done
 				removeSentMessage(msgId, client->index);
@@ -367,28 +350,29 @@ void MqttSnBroker::onDownReceived(uint16_t clientId, int length) {
 		break;
 	case mqttsn::SUBSCRIBE:
 		// client wants to subscribe to a topic or topic wildcard
-		if (length < 6) {
+		if (length < 5) {
 			onError(ERROR_MESSAGE, messageType);
 		} else {
 			// get client
 			ClientInfo *client = findClient(clientId);
 			if (client != nullptr) {
 				// deserialize message
-				uint8_t flags = data[2];
+				uint8_t flags = data[1];
 				bool dup = mqttsn::getDup(flags);
 				int8_t qos = mqttsn::getQos(flags);
 				mqttsn::TopicType topicType = mqttsn::getTopicType(flags);
-				uint16_t msgId = mqttsn::getUShort(data + 3);
+				uint16_t msgId = mqttsn::getUShort(data + 2);
 
 				// create reply message
-				Message m = addSendMessage(8, mqttsn::SUBACK);
-				if (m.info != nullptr) {
-					m.info->clients[0] = clientId;
-					m.data[2] = mqttsn::makeQos(qos); // granted qos
-					mqttsn::setUShort(m.data + 5, msgId);
+				Message m = addSendMessage(7, {clientId});
+				if (m.data != nullptr) {
+					// serialize message
+					m.data[0] = mqttsn::SUBACK;
+					m.data[1] = mqttsn::makeQos(qos); // granted qos
+					mqttsn::setUShort(m.data + 4, msgId);
 
 					if (topicType == mqttsn::TopicType::NORMAL) {
-						String topicName(data + 5, length - 5);
+						String topicName(data + 4, length - 4);
 
 						// get or add topic by name
 						uint16_t topicId = getTopicId(topicName);
@@ -408,22 +392,22 @@ void MqttSnBroker::onDownReceived(uint16_t clientId, int length) {
 								topic.setQos(client->index, qos);
 								
 								// serialize reply message
-								mqttsn::setUShort(m.data + 3, topicId);
-								m.data[7] = uint8_t(mqttsn::ReturnCode::ACCEPTED);
+								mqttsn::setUShort(m.data + 2, topicId);
+								m.data[6] = uint8_t(mqttsn::ReturnCode::ACCEPTED);
 							} else {
 								// error: could not subscribe at the gateway
-								mqttsn::setUShort(m.data + 3, topicId);
-								m.data[7] = uint8_t(mqttsn::ReturnCode::REJECTED_CONGESTED);
+								mqttsn::setUShort(m.data + 2, topicId);
+								m.data[6] = uint8_t(mqttsn::ReturnCode::REJECTED_CONGESTED);
 							}
 						} else {
 							// error: could not allocate a topic id
-							mqttsn::setUShort(m.data + 3, 0);
-							m.data[7] = uint8_t(mqttsn::ReturnCode::REJECTED_CONGESTED);
+							mqttsn::setUShort(m.data + 2, 0);
+							m.data[6] = uint8_t(mqttsn::ReturnCode::REJECTED_CONGESTED);
 						}
 					} else {
 						// error: topic type not supported
-						mqttsn::setUShort(m.data + 3, 0);
-						m.data[7] = uint8_t(mqttsn::ReturnCode::NOT_SUPPORTED);
+						mqttsn::setUShort(m.data + 2, 0);
+						m.data[6] = uint8_t(mqttsn::ReturnCode::NOT_SUPPORTED);
 					}
 					
 					// send reply message
@@ -440,25 +424,26 @@ void MqttSnBroker::onDownReceived(uint16_t clientId, int length) {
 		break;
 	case mqttsn::UNSUBSCRIBE:
 		// client wants to unsubscribe from a topic or topic wildcard
-		if (length < 6) {
+		if (length < 5) {
 			onError(ERROR_MESSAGE, messageType);
 		} else {
 			// get client
 			ClientInfo *client = findClient(clientId);
 			if (client != nullptr) {
 				// deserialize message
-				uint8_t flags = data[2];
+				uint8_t flags = data[1];
 				mqttsn::TopicType topicType = mqttsn::getTopicType(flags);
-				uint16_t msgId = mqttsn::getUShort(data + 3);
+				uint16_t msgId = mqttsn::getUShort(data + 2);
 
 				// create reply message
-				Message m = addSendMessage(4, mqttsn::UNSUBACK);
-				if (m.info != nullptr) {
-					m.info->clients[0] = clientId;
-					mqttsn::setUShort(m.data + 2, msgId);
+				Message m = addSendMessage(3, {clientId});
+				if (m.data != nullptr) {
+					// serialize message
+					m.data[0] = mqttsn::UNSUBACK;
+					mqttsn::setUShort(m.data + 1, msgId);
 
 					if (topicType == mqttsn::TopicType::NORMAL) {
-						String topicName(data + 5, length - 5);
+						String topicName(data + 4, length - 4);
 
 						//todo: check if topicFilter is a topic name or wildcard
 
@@ -511,9 +496,10 @@ void MqttSnBroker::onDownReceived(uint16_t clientId, int length) {
 				//todo: reset connection timeout
 			
 				// create reply message
-				Message m = addSendMessage(2, mqttsn::PINGRESP);
-				if (m.info != nullptr) {
-					m.info->clients[0] = clientId;
+				Message m = addSendMessage(1, {clientId});
+				if (m.data != nullptr) {
+					// serialize message
+					m.data[0] = mqttsn::PINGRESP;
 
 					// send reply message
 					if (!isDownSendBusy())
@@ -531,9 +517,6 @@ void MqttSnBroker::onDownReceived(uint16_t clientId, int length) {
 		// error: unsupported message type
 		onError(ERROR_BROKER_UNSUPPORTED, messageType);
 	}
-
-	// re-enable receiving of packets
-	downReceive(this->receiveMessage, MAX_MESSAGE_LENGTH);
 }
 
 void MqttSnBroker::onDownSent() {
@@ -559,10 +542,8 @@ void MqttSnBroker::onSystemTimeout2(SystemTime time) {
 bool MqttSnBroker::TopicInfo::isRemoteSubscribed() {
 	for (int i = 0; i < (MAX_CLIENT_COUNT + 15) / 16; ++i) {
 		uint32_t clientQos = this->clientQosArray[i];
-		
-		if (i == MAX_CLIENT_COUNT / 16) {
+		if (i == MAX_CLIENT_COUNT / 16)
 			clientQos |= 0xffffffff << (MAX_CLIENT_COUNT & 15) * 2;
-		}
 
 		if (clientQos != 0xffffffff)
 			return true;
@@ -573,7 +554,13 @@ bool MqttSnBroker::TopicInfo::isRemoteSubscribed() {
 int8_t MqttSnBroker::TopicInfo::getMaxQos() {
 	uint32_t a = 0xffffffff;
 	uint32_t b = 0xffffffff;
-	for (uint32_t clientQos : this->clientQosArray) {
+	for (int i = 0; i < (MAX_CLIENT_COUNT + 15) / 16; ++i) {
+		uint32_t clientQos = this->clientQosArray[i];
+		if (i == MAX_CLIENT_COUNT / 16)
+			clientQos |= 0xffffffff << (MAX_CLIENT_COUNT & 15) * 2;
+		//if ((i + 1) * 16 > MAX_CLIENT_COUNT)
+		//	clientQos |= 0xffffffff << (MAX_CLIENT_COUNT - i * 16) * 2;
+		
 		uint32_t c = clientQos;
 		uint32_t d = clientQos >> 1;
 		
@@ -594,7 +581,8 @@ int8_t MqttSnBroker::TopicInfo::getMaxQos() {
 		a = x;
 		b = y;
 	}
-	return ((((a & 1) | ((b & 1) << 1)) + 1) & 3) - 1;
+	int8_t qos = ((((a & 1) | ((b & 1) << 1)) + 1) & 3) - 1;
+	return qos;
 }
 
 void MqttSnBroker::TopicInfo::setQos(int clientIndex, int8_t qos) {
@@ -669,8 +657,8 @@ MqttSnBroker::TopicInfo *MqttSnBroker::findTopic(uint16_t topicId) {
 
 uint16_t MqttSnBroker::findTopicId(uint16_t gatewayTopicId) {
 	for (int i = 0; i < this->topicCount; ++i) {
-		TopicInfo *topic = &this->topics[i];
-		if (topic->hash != 0 && topic->gatewayTopicId == gatewayTopicId)
+		TopicInfo &topic = this->topics[i];
+		if (topic.hash != 0 && topic.gatewayTopicId == gatewayTopicId)
 			return i + 1;
 	}
 	return 0;
@@ -709,7 +697,7 @@ uint16_t MqttSnBroker::eraseRetained(int offset, int length) {
 	return uint16_t(this->retainedSize);
 }
 
-MqttSnBroker::Message MqttSnBroker::addSendMessage(int length, mqttsn::MessageType type) {
+MqttSnBroker::Message MqttSnBroker::addSendMessage(int length, ClientSet clientSet, uint16_t msgId) {
 	if (this->busy)
 		return {};
 
@@ -720,14 +708,14 @@ MqttSnBroker::Message MqttSnBroker::addSendMessage(int length, mqttsn::MessageTy
 		int j = 0;
 		uint16_t offset = 0;
 		for (int i = this->sendMessagesTail; i < this->sendMessagesHead; ++i) {
-			MessageInfo *info = &this->sendMessages[i];
-			if (info->msgId != 0 || i >= this->sendMessagesCurrent) {
-				uint8_t *data = this->sendBuffer + info->offset;
-				int length = data[0];
+			MessageInfo &info = this->sendMessages[i];
+			if (info.msgId != 0 || i >= this->sendMessagesCurrent) {
+				uint8_t *data = this->sendBuffer + info.offset;
+				int length = info.length;
 				
-				MessageInfo *info2 = &this->sendMessages[j++];
-				info2->msgId = info->msgId;
-				info2->offset = offset;
+				MessageInfo &info2 = this->sendMessages[j++];
+				info2 = info;
+				info2.offset = offset;
 				memcpy(this->sendBuffer + offset, data, length);
 				offset += length;
 			}
@@ -741,56 +729,52 @@ MqttSnBroker::Message MqttSnBroker::addSendMessage(int length, mqttsn::MessageTy
 	}
 
 	// allocate message info
-	MessageInfo *info = &this->sendMessages[this->sendMessagesHead++];
+	MessageInfo &info = this->sendMessages[this->sendMessagesHead++];
 		
 	// allocate data
-	info->offset = this->sendBufferHead;
+	info.offset = this->sendBufferHead;
+	info.length = length;
 	this->sendBufferHead += length;
 	this->sendBufferFill += length;
-	uint8_t *data = this->sendBuffer + info->offset;
-
-	// set message header
-	data[0] = length;
-	data[1] = type;
-
-	// clear client flags
-	for (uint32_t &client : info->clients) {
-		client = 0;
-	}
-
-	// clear message id
-	info->msgId = 0;
 
 	// set busy flag if no new message will fit
 	this->busy = this->sendMessagesHead >= MAX_SEND_COUNT || this->sendBufferFill + MAX_MESSAGE_LENGTH > SEND_BUFFER_SIZE;
 
-	return {info, data};
+	// set client set
+	info.clientSet = clientSet;
+
+	// set message id
+	info.msgId = msgId;
+
+
+	// return allocated message (space for "naked" mqtt-sn message without length)
+	return {this->sendBuffer + info.offset/*, length*/};
 }
 
 void MqttSnBroker::sendCurrentMessage() {
 	int current = this->sendMessagesCurrent;
 
 	// get message
-	MessageInfo *info = &this->sendMessages[current];
-	uint8_t *data = this->sendBuffer + info->offset;
-	int length = data[0];
+	MessageInfo &info = this->sendMessages[current];
+	uint8_t *data = this->sendBuffer + info.offset;
+	int length = info.length;
 	
 	// get flags of PUBLISH message
-	uint8_t flags = data[2];
+	uint8_t flags = data[1];
 
 	// get client id
 	uint16_t clientId;
 	int clientIndex;
-	if (data[1] != mqttsn::PUBLISH) {
+	if (data[0] != mqttsn::PUBLISH) {
 		// send message to just one client
-		clientId = info->clients[0];
+		clientId = info.clientSet.clientId;
 		clientIndex = MAX_CLIENT_COUNT;
 	} else {
 		// send message to all clients whose flag is set
 		clientIndex = this->sendMessagesClientIndex;
 		
 		// skip empty flags (guaranteed that one flag is set)
-		while (((info->clients[clientIndex >> 5] >> (clientIndex & 31)) & 1) == 0) {
+		while (((info.clientSet.flags[clientIndex >> 5] >> (clientIndex & 31)) & 1) == 0) {
 			++clientIndex;
 		}
 		
@@ -798,18 +782,18 @@ void MqttSnBroker::sendCurrentMessage() {
 		clientId = this->clients[clientIndex].clientId;
 		
 		// get topic
-		uint16_t topicId = mqttsn::getUShort(data + 3);
+		uint16_t topicId = mqttsn::getUShort(data + 2);
 		TopicInfo &topic = getTopic(topicId);
 		
 		// set actual qos to message
 		int8_t clientQos = topic.getQos(clientIndex);
 		int8_t qos = mqttsn::getQos(flags);
-		data[2] = (flags & ~mqttsn::makeQos(3)) | mqttsn::makeQos(min(qos, clientQos));
+		data[1] = (flags & ~mqttsn::makeQos(3)) | mqttsn::makeQos(min(qos, clientQos));
 		
 		// go to next set flag
 		while (clientIndex < MAX_CLIENT_COUNT) {
 			++clientIndex;
-			if (((info->clients[clientIndex >> 5] >> (clientIndex & 31)) & 1) != 0)
+			if (((info.clientSet.flags[clientIndex >> 5] >> (clientIndex & 31)) & 1) != 0)
 				break;
 		}
 	}
@@ -818,23 +802,24 @@ void MqttSnBroker::sendCurrentMessage() {
 	downSend(clientId, data, length);
 
 	// restore flags in PUBLISH message
-	data[2] = flags;
+	data[1] = flags;
 
 	// set sent time
-	info->sentTime = getSystemTime();
+	SystemTime now = getSystemTime();
+	info.sentTime = now;
 
 	if (current == this->sendMessagesTail) {
-		if (info->msgId == 0) {
+		if (info.msgId == 0) {
 			// remove message from tail because it's not needed any more such as PINGREQ
 			if (clientIndex == MAX_CLIENT_COUNT)
 				this->sendMessagesTail = current + 1;
 
 			// set timer for idle ping to keep the connection alive
-			setSystemTimeout2(info->sentTime + KEEP_ALIVE_INTERVAL);
+			setSystemTimeout2(now + KEEP_ALIVE_INTERVAL);
 		} else {
 			// start retransmission timeout
 			if (this->sendMessagesClientIndex == 0)
-				setSystemTimeout2(info->sentTime + RETRANSMISSION_INTERVAL);
+				setSystemTimeout2(now + RETRANSMISSION_INTERVAL);
 		}
 	}
 
@@ -849,26 +834,26 @@ void MqttSnBroker::sendCurrentMessage() {
 
 void MqttSnBroker::resend() {
 	// get message
-	MessageInfo *info = &this->sendMessages[this->sendMessagesTail];
-	uint8_t *data = this->sendBuffer + info->offset;
-	int length = data[0];
+	MessageInfo &info = this->sendMessages[this->sendMessagesTail];
+	uint8_t *data = this->sendBuffer + info.offset;
+	int length = info.length;
 
 	// get flags of PUBLISH message
-	uint8_t flags = data[2];
+	uint8_t flags = data[1];
 
 	// get client id
 	uint16_t clientId;
 	int clientIndex;
-	if (data[1] != mqttsn::PUBLISH) {
+	if (data[0] != mqttsn::PUBLISH) {
 		// send message to just one client
-		clientId = info->clients[0];
+		clientId = info.clientSet.clientId;
 		clientIndex = MAX_CLIENT_COUNT;
 	} else {
 		// send message to all clients whose flag is set
 		clientIndex = this->sendMessagesClientIndex;
 		
 		// skip empty flags (guaranteed that one flag is set)
-		while (((info->clients[clientIndex >> 5] >> (clientIndex & 31)) & 1) == 0) {
+		while (((info.clientSet.flags[clientIndex >> 5] >> (clientIndex & 31)) & 1) == 0) {
 			++clientIndex;
 		}
 		
@@ -876,20 +861,20 @@ void MqttSnBroker::resend() {
 		clientId = this->clients[clientIndex].clientId;
 		
 		// get topic
-		uint16_t topicId = mqttsn::getUShort(data + 3);
+		uint16_t topicId = mqttsn::getUShort(data + 2);
 		TopicInfo &topic = getTopic(topicId);
 		
 		// set actual qos to message
 		int8_t clientQos = topic.getQos(clientIndex);
 		int8_t qos = mqttsn::getQos(flags);
-		data[2] = (flags & ~mqttsn::makeQos(3)) | mqttsn::makeQos(min(qos, clientQos));
+		data[1] = (flags & ~mqttsn::makeQos(3)) | mqttsn::makeQos(min(qos, clientQos));
 	}
 
 	// send to client
 	downSend(clientId, data, length);
 
 	// restore flags in PUBLISH message
-	data[2] = flags;
+	data[1] = flags;
 
 	// start timeout, either for retransmission or idle ping
 	setSystemTimeout2(getSystemTime() + RETRANSMISSION_INTERVAL);
@@ -900,24 +885,24 @@ void MqttSnBroker::removeSentMessage(uint16_t msgId, uint16_t clientIndex) {
 	
 	// mark message with msgId as obsolete
 	for (int i = tail; i < this->sendMessagesCurrent; ++i) {
-		MessageInfo *info = &this->sendMessages[i];
+		MessageInfo &info = this->sendMessages[i];
 		
-		if (info->msgId == msgId) {
+		if (info.msgId == msgId) {
 			uint32_t allClients = 0;
 
 			if (clientIndex < MAX_CLIENT_COUNT) {
 				// clear client flag
-				info->clients[clientIndex >> 5] &= ~(1 << (clientIndex & 31));
+				info.clientSet.flags[clientIndex >> 5] &= ~(1 << (clientIndex & 31));
 				
 				// get all client flags
-				for (uint32_t clients : info->clients)
+				for (uint32_t clients : info.clientSet.flags)
 					allClients |= clients;
 			}
 			
 			// remove message if all clients have acknowledged
 			if (allClients == 0) {
-				info->msgId = 0;
-				int length = this->sendBuffer[info->offset];
+				info.msgId = 0;
+				int length = this->sendBuffer[info.offset];
 				this->sendBufferFill -= length;
 				this->busy = this->sendBufferFill + MAX_MESSAGE_LENGTH > SEND_BUFFER_SIZE;
 			}
@@ -927,9 +912,9 @@ void MqttSnBroker::removeSentMessage(uint16_t msgId, uint16_t clientIndex) {
 	
 	// remove acknowledged messages and messages that don't need acknowledge
 	for (int i = tail; i < this->sendMessagesCurrent; ++i) {
-		MessageInfo *info = &this->sendMessages[i];
+		MessageInfo &info = this->sendMessages[i];
 	
-		if (info->msgId == 0)
+		if (info.msgId == 0)
 			++tail;
 		else
 			break;
@@ -939,16 +924,16 @@ void MqttSnBroker::removeSentMessage(uint16_t msgId, uint16_t clientIndex) {
 	SystemTime systemTime = getSystemTime();
 	if (tail < this->sendMessagesCurrent) {
 		// get next message
-		MessageInfo *info = &this->sendMessages[tail];
+		MessageInfo &info = this->sendMessages[tail];
 		
 		// check if we have to resend it immediately
-		if (systemTime >= info->sentTime + RETRANSMISSION_INTERVAL) {
+		if (systemTime >= info.sentTime + RETRANSMISSION_INTERVAL) {
 			// resend a message that was not acknowledged or mark as pending
-			if (!(this->resendPending = isUpSendBusy()))
+			if (!(this->resendPending = isDownSendBusy()))
 				resend();
 		} else {
 			// wait until next message has to be resent
-			setSystemTimeout1(info->sentTime + RETRANSMISSION_INTERVAL);
+			setSystemTimeout1(info.sentTime + RETRANSMISSION_INTERVAL);
 		}
 	} else {
 		// set timer for idle ping to keep the connection alive
@@ -980,35 +965,39 @@ void MqttSnBroker::sendPublish(uint16_t topicId, TopicInfo *topic, uint8_t const
 		}
 	}
 	
-	// check if a remote client has subscribed the topic
+	// check if at least one remote client has subscribed the topic
 	if (topic->isRemoteSubscribed()) {
-		// allocate message
-		Message m = addSendMessage(7 + length, mqttsn::PUBLISH);
-
-		// generate and set message id
-		uint16_t msgId = getNextMsgId();
-		m.info->msgId = msgId;
-
 		// publish to all clients that have subscribed to the topic
+		ClientSet clientSet = {.flags = {}};
 		for (ClientInfo &client : this->clients) {
 			uint16_t clientId = client.clientId;
 			if (clientId != 0 && clientId != excludeClientId) {
 				int clientQos = topic->getQos(client.index);
 				if (clientQos >= 0) {
-					m.info->clients[client.index >> 5] |= 1 << (client.index & 31);
+					clientSet.flags[client.index >> 5] |= 1 << (client.index & 31);
 				}
 			}
 		}
-
-		// serialize message
-		m.data[2] = mqttsn::makeQos(qos) | mqttsn::makeRetain(retain) | mqttsn::makeTopicType(mqttsn::TopicType::NORMAL);
-		mqttsn::setUShort(m.data + 3, topicId);
-		mqttsn::setUShort(m.data + 5, msgId);
-		memcpy(m.data + 7, data, length);
 		
-		// send message
-		if (!isDownSendBusy())
-			sendCurrentMessage();
+		// generate and set message id
+		uint16_t msgId = getNextMsgId();
+
+		// allocate message
+		Message m = addSendMessage(6 + length, clientSet, msgId);
+		if (m.data != nullptr) {
+			// serialize message
+			m.data[0] = mqttsn::PUBLISH;
+			m.data[1] = mqttsn::makeQos(qos) | mqttsn::makeRetain(retain) | mqttsn::makeTopicType(mqttsn::TopicType::NORMAL);
+			mqttsn::setUShort(m.data + 2, topicId);
+			mqttsn::setUShort(m.data + 4, msgId);
+			memcpy(m.data + 6, data, length);
+			
+			// send message
+			if (!isDownSendBusy())
+				sendCurrentMessage();
+		} else {
+			// error: message queue full
+		}
 	}
 
 	// publish to local client if it has subscribed to the topic
@@ -1019,9 +1008,10 @@ void MqttSnBroker::sendPublish(uint16_t topicId, TopicInfo *topic, uint8_t const
 
 void MqttSnBroker::sendDisconnect(uint16_t clientId) {
 	// create reply message
-	Message m = addSendMessage(2, mqttsn::DISCONNECT);
-	if (m.info != nullptr) {
-		m.info->clients[0] = clientId;
+	Message m = addSendMessage(1, {clientId});
+	if (m.data != nullptr) {
+		// serialize message
+		m.data[0] = mqttsn::DISCONNECT;
 		
 		// send message
 		if (!isDownSendBusy())

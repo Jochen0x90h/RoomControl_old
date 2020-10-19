@@ -134,7 +134,6 @@ int main(int argc, const char **argv) {
 	asio::ip::address localhost = asio::ip::address::from_string("::1", ec);
 	global::local = asio::ip::udp::endpoint(asio::ip::udp::v6(), 1337);
 	global::upLink = asio::ip::udp::endpoint(localhost, 47193);
-	global::downLocal = asio::ip::udp::endpoint(asio::ip::udp::v6(), 1338);
 	global::gui = &gui;
 
 	// the room control application

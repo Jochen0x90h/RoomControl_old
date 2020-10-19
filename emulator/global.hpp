@@ -18,10 +18,6 @@ namespace global {
 	// remote endpoint of uplink
 	extern asio::ip::udp::endpoint upLink;
 
-
-	// local endpoint (e.g. asio::ip::udp::endpoint(asio::ip::udp::v6(), port))
-	extern asio::ip::udp::endpoint downLocal;
-
-
+	// emulator user interface
 	extern Gui *gui;
 };
