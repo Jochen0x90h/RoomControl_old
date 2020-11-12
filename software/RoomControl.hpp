@@ -8,6 +8,7 @@
 #include "Bitmap.hpp"
 #include "StringBuffer.hpp"
 #include "Storage.hpp"
+#include "StringSet.hpp"
 
 
 /**
@@ -16,16 +17,7 @@
 class RoomControl : public MqttSnBroker, public Lin, public Clock, public Display, public Poti {
 public:
 
-	RoomControl()
-		: MqttSnBroker(), Lin()
-		, storage(0, FLASH_PAGE_COUNT, localDevices)
-		
-	{
-		SystemTime time = getSystemTime();
-		this->lastUpdateTime = time;
-		this->nextReportTime = time;
-		onSystemTimeout3(time);
-	}
+	RoomControl();
 
 	~RoomControl() override;
 
@@ -72,12 +64,6 @@ public:
 	void onSystemTimeout3(SystemTime time) override;
 
 
-// Clock
-// -----
-
-	void onSecondElapsed() override;
-
-
 // Display
 // -------
 
@@ -103,34 +89,26 @@ public:
 		
 		// local devices connected by lin bus
 		LOCAL_DEVICES,
+		EDIT_LOCAL_DEVICE,
 		
-		
-		// events
-		EVENTS,
-		EDIT_EVENT,
-		ADD_EVENT,
+		// connections
+		CONNECTIONS,
+		EDIT_CONNECTION,
+		ADD_CONNECTION,
 
 		// timers
 		TIMERS,
 		EDIT_TIMER,
 		ADD_TIMER,
 
-		// scenarios
-		SCENARIOS,
-		EDIT_SCENARIO,
-		ADD_SCENARIO,
+		// rules
 		
-		// actions that can be triggered by buttons, timers and scenarios
-		SELECT_ACTION,
-		ADD_ACTION,
 		
-		// devices such as switch, light, blind and window handle
-		DEVICES,
-		EDIT_DEVICE,
-		ADD_DEVICE,
-		SELECT_CONDITION,
-		ADD_CONDITION,
+		// helper
+		SELECT_TOPIC,
 	};
+	
+	static constexpr int MAX_TIMER_COUNT = 32;
 	
 	void updateMenu(int delta, bool activated);
 
@@ -148,17 +126,21 @@ public:
 	
 	bool entry(String s, bool underline = false, int begin = 0, int end = 0);
 
-	bool entryWeekdays(const char* s, int weekdays, bool underline = false, int index = 0);
+	bool entryWeekdays(String s, int weekdays, bool underline = false, int index = 0);
 	
 	bool isSelectedEntry() {
 		return this->selected == this->entryIndex;
 	}
 
-	bool isEdit(int editCount = 1);
+	/**
+	 * Get edit state. Returns 0 if not in edit mode or not the entry being edited, otherwise returns the 1-based index
+	 * of the field being edited
+	 */
+	int getEdit(int editCount = 1);
 
-	bool isEditEntry(int entryIndex) {
+	/*bool isEditEntry(int entryIndex) {
 		return this->selected == entryIndex && this->edit > 0;
-	}
+	}*/
 
 	void push(State state);
 	
@@ -186,6 +168,7 @@ public:
 	struct StackEntry {State state; int selected; int selectedY; int yOffset;};
 	int stackIndex = 0;
 	StackEntry stack[6];
+	bool stackHasChanged = false;
 
 	// true if selected menu entry was activated
 	bool activated = false;
@@ -206,23 +189,60 @@ public:
 	StringBuffer<32> buffer;
 
 
+// Storage
+// -------
+
+	Storage storage;
+
+
+// Room
+// ----
+
+	struct Room {
+		// name of this room
+		char name[16];
+
+		/**
+		 * Returns the size in bytes needed to store the control configuration in flash
+		 * @return size in bytes
+		 */
+		int getFlashSize() const;
+
+		/**
+		 * Returns the size in bytes needed to store the contol state in ram
+		 * @return size in bytes
+		 */
+		int getRamSize() const;
+	};
+
+	struct RoomState {
+		// topic id for list of rooms in house (<prefix>)
+		uint16_t houseTopicId;
+
+		// topic id for list of devices in room (<prefix>/<room>)
+		uint16_t roomTopicId;
+	};
+
+	Storage::Array<Room, RoomState> room;
+	using RoomElement = Storage::Element<Room, RoomState>;
+
+
 // Devices
 // -------
 	
-	struct LocalDevice {
-		Lin::Device device;
+	struct LocalDevice : public Lin::Device {
 	
 		/**
 		 * Returns the size in bytes needed to store the device configuration in flash
 		 * @return size in bytes
 		 */
-		int flashSize() const;
+		int getFlashSize() const;
 
 		/**
 		 * Returns the size in bytes needed to store the device state in ram
 		 * @return size in bytes
 		 */
-		int ramSize() const;
+		int getRamSize() const;
 		
 		/**
 		 * Returns the name of the device
@@ -235,11 +255,28 @@ public:
 		 * @paran name device name
 		 */
 		void setName(String name);
+		
+		/**
+		 * Assigns another device to this device by copying the number of bytes given by getFlashSize().
+		 * The actual type must be the same or enough space following to accomodate all data
+		 */
+		void operator =(LocalDevice const &device);
+	};
+	
+	struct DeviceState {
+		// topic id for list of attributes in device (<prefix>/<room>/<device>)
+		uint16_t deviceTopicId;
+		
+		// topic id for room command (<prefix>/<room>/<device>/cmd)
+		//uint16_t deviceCommand;
 	};
 	
 	struct Switch2Device : public LocalDevice {
 		struct Relays {
+			// relay/light: on duration, blind: duration from fully open to fully closed
 			SystemDuration duration1;
+			
+			// blind: rocker long press duration
 			SystemDuration duration2;
 		};
 		Relays r[2];
@@ -248,20 +285,34 @@ public:
 		char name[16];
 	};
 	
-	struct Switch2State {
+	struct Switch2State : public DeviceState {
+		// switches A and B
+		struct Switches {
+			// topic id's for publishing the state
+			uint16_t stateId1;
+			uint16_t stateId2;
+		};
+
+		// relays X and Y
 		struct Relays {
-			uint16_t topicId1;
-			uint16_t topicId2;
+			// topic id's for publishing the state
+			uint16_t stateId1;
+			uint16_t stateId2;
+
+			// topic id's for receiving commands
+			uint16_t commandId1;
+			uint16_t commandId2;
+
+			// relay/light: on timeout, blind: move timeout
 			SystemTime timeout1;
+			
+			// blind: rocker long press timeout
 			SystemTime timeout2;
+			
+			// blind: current position measured as time
 			SystemDuration duration;
 		};
-		
-		struct Switches {
-			uint16_t topicId1;
-			uint16_t topicId2;
-		};
-		
+				
 		// current state of switches
 		uint8_t switches;
 		
@@ -281,16 +332,14 @@ public:
 	// subscribe devices to mqtt topics
 	void subscribeDevices();
 	
+	// subscribe one device to mqtt topics
+	void subscribeDevice(int index);
+
 	// update time dependent state of devices (e.g. blind position)
 	SystemTime updateDevices(SystemTime time);
 	
-	Storage storage;
-	Storage::Array<LocalDevice, void> localDevices;
-	using LocalDeviceElement = Storage::Element<LocalDevice, void>;
-	union {
-		LocalDevice localDevice;
-		Switch2Device switch2Device;
-	} temp;
+	Storage::Array<LocalDevice, DeviceState> localDevices;
+	using LocalDeviceElement = Storage::Element<LocalDevice, DeviceState>;
 	
 	// next time for reporting changing values
 	SystemTime nextReportTime;
@@ -299,10 +348,158 @@ public:
 	SystemTime lastUpdateTime;
 
 
+// Routing
+// -------
+
 	struct Forward {
-		uint16_t srcTopic;
-		uint16_t dstTopic;
+		uint16_t srcId;
+		uint16_t dstId;
 	};
 
 	Forward forwards[5];
+
+
+// Command
+// -------
+
+	/**
+	 * Command to be executed e.g. on timer event.
+	 * Contains an mqtt topic where to publish a value and the value itself, both are stored in an external data buffer
+	 */
+	struct Command {
+		enum Type : uint8_t {
+			// button: pressed or release
+			BUTTON,
+			
+			// rocker: up, down or release
+			ROCKER,
+			
+			// binary: on or off
+			BINARY,
+			
+			// 8 bit value, 0-255
+			VALUE8,
+			
+			// 0-100%
+			PERCENTAGE,
+			
+			// room temperature 8°C - 33.5°C
+			TEMPERATURE,
+			
+			// color
+			COLOR_RGB,
+
+			// delete current command, must be last enum value
+			TYPE_COUNT,
+		};
+		
+		/**
+		 * Get the size of the value in bytes
+		 */
+		int getValueSize() const;
+		
+		/**
+		 * Get the number of values (e.g. 3 for rgb color)
+		 */
+		int getValueCount() const;
+		
+		int getFlashSize() const {return this->topicLength + getValueSize();}
+		
+		void changeType(int delta, uint8_t *data, uint8_t *end);
+		
+		void setTopic(String topic, uint8_t *data, uint8_t *end);
+		
+		// type of value that is published on the topic
+		Type type;
+
+		// length of topic where value gets published
+		uint8_t topicLength;
+	};
+
+	void publishValue(uint16_t topicId, Command::Type type, uint8_t const *value);
+
+
+// Timers
+// ------
+
+	struct Timer {
+		// weekday flags
+		static constexpr uint8_t MONDAY = 0x01;
+		static constexpr uint8_t TUESDAY = 0x02;
+		static constexpr uint8_t WEDNESDAY = 0x04;
+		static constexpr uint8_t THURSDAY = 0x08;
+		static constexpr uint8_t FRIDAY = 0x10;
+		static constexpr uint8_t SATURDAY = 0x20;
+		static constexpr uint8_t SUNDAY = 0x40;
+
+		static constexpr int MAX_COMMAND_COUNT = 16;
+		static constexpr int BUFFER_SIZE = (sizeof(Command) + 32 + 8) * MAX_COMMAND_COUNT;
+
+		/**
+		 * Returns the size in bytes needed to store the device configuration in flash
+		 * @return size in bytes
+		 */
+		int getFlashSize() const;
+
+		/**
+		 * Returns the size in bytes needed to store the device state in ram
+		 * @return size in bytes
+		 */
+		int getRamSize() const;
+
+
+		// timer time and weekday flags
+		ClockTime time;
+	
+	
+		uint8_t commandCount;
+		union {
+			// list of commands, overlaps with buffer
+			Command commands[MAX_COMMAND_COUNT];
+			
+			// buffer for commands, topics and values
+			uint8_t buffer[BUFFER_SIZE];
+		} u;
+	};
+	
+	struct TimerState {
+		uint16_t topicIds[Timer::MAX_COMMAND_COUNT];
+	};
+	
+	// subscribe one timer to mqtt topics
+	void registerTimer(int index);
+
+	Storage::Array<Timer, TimerState> timers;
+	using TimerElement = Storage::Element<Timer, TimerState>;
+
+
+// Clock
+// -----
+
+void onSecondElapsed() override;
+
+
+// Temp
+// ----
+
+	union {
+		Room room;
+		Lin::Device linDevice;
+		LocalDevice localDevice;
+		Switch2Device switch2Device;
+		Timer timer;
+	} temp;
+	void *tempState;
+	int tempIndex;
+	
+
+// Topic Selector
+// --------------
+
+	StringBuffer<32> selectedTopic;
+	uint16_t selectedTopicId = 0;
+	uint16_t topicDepth;
+	StringSet<64, 64 * 16> topicSet;
+	bool onlyCommands;
+
 };

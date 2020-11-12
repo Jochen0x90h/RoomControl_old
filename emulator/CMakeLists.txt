@@ -51,13 +51,14 @@ source_group(glad FILES ${GLAD})
 
 # CLion: Software directory is in External Libraries -> Header Search Paths -> Software
 set(SOFTWARE
-	../software/defines.hpp
-	../software/util.hpp
 	../software/Array.hpp
+	../software/ArrayList.hpp
 	../software/Bitmap.cpp
 	../software/Bitmap.hpp
+	../software/ClockTime.hpp
 	../software/convert.cpp
 	../software/convert.hpp
+	../software/defines.hpp
 	../software/Font.cpp
 	../software/Font.hpp
 	../software/Flash.hpp
@@ -70,11 +71,13 @@ set(SOFTWARE
 	../software/RoomControl.hpp
 	../software/String.hpp
 	../software/StringBuffer.hpp
-	../software/tahoma_8pt.cpp
-	../software/tahoma_8pt.hpp
 	../software/Storage.cpp
 	../software/Storage.hpp
+	../software/StringSet.hpp
 	../software/SystemTime.hpp
+	../software/tahoma_8pt.cpp
+	../software/tahoma_8pt.hpp
+	../software/util.hpp
 	#../software/Clock.hpp
 	#../software/EnOceanProtocol.cpp
 	#../software/EnOceanProtocol.hpp

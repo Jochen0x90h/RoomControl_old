@@ -4,12 +4,29 @@
 // font
 #include "tahoma_8pt.hpp"
 
-
+static char const *prefix = "rc";
 static char const weekdays[7][4] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
-static char const weekdaysShort[7][4] = {"M", "T", "W", "T", "F", "S", "S"};
+static char const weekdaysShort[7][2] = {"M", "T", "W", "T", "F", "S", "S"};
+static char const *buttonStates[] = {"release", "press"};
+static char const *rockerStates[] = {"release", "up", "down", ""};
+static char const *binaryStates[] = {"off", "on"};
 
 static uint8_t const offOn[2] = {'0', '1'};
 
+
+RoomControl::RoomControl()
+	: storage(0, FLASH_PAGE_COUNT, room, localDevices, timers)
+{
+	if (this->room.size() == 0) {
+		assign(this->temp.room.name, "room");
+		this->room.write(0, &this->temp.room);
+	}
+	
+	SystemTime time = getSystemTime();
+	this->lastUpdateTime = time;
+	this->nextReportTime = time;
+	onSystemTimeout3(time);
+}
 
 RoomControl::~RoomControl() {
 }
@@ -53,25 +70,51 @@ void RoomControl::onError(int error, mqttsn::MessageType messageType) {
 // ------------
 
 void RoomControl::onPublished(uint16_t topicId, uint8_t const *data, int length, int8_t qos, bool retain) {
-	std::string s((char const*)data, length);
-	std::cout << "onPublished " << topicId << " data " << s << " qos " << int(qos);
+	String message(data, length);
+
+	std::cout << "onPublished " << topicId << " message " << message << " qos " << int(qos);
 	if (retain)
 		std::cout << " retain";
 	std::cout << std::endl;
 
-	if (retain) {
-		for (Forward forward : forwards) {
-			if (topicId == forward.srcTopic) {
-				std::cout << "forward " << topicId << " -> " << forward.dstTopic << std::endl;
-				publish(forward.dstTopic, data, length, qos);
-			}
-		}
+
+	// topic list of house, room or device (depending on topicDepth)
+	if (topicId == this->selectedTopicId && message != "?") {
+		int space = message.indexOf(' ', 0, message.length);
+		if (this->topicDepth < 2 || !this->onlyCommands || message.substring(space + 1) == "c")
+			this->topicSet.add(message.substring(0, space));
+		return;
 	}
 
-	// check if this is a command
-	if (retain || length == 0)
+	// global commands
+	RoomState const &roomState = *this->room[0].ram;
+
+	// check for house command
+	if (topicId == roomState.houseTopicId && message == "?") {
+		// publish room name
+		publish(roomState.houseTopicId, this->room[0].flash->name, 1);
 		return;
-	String str(data, length);
+	}
+
+	// check for room command
+	if (topicId == roomState.roomTopicId && message == "?") {
+		// publish device names
+		for (int i = 0; i < this->localDevices.size(); ++i) {
+			LocalDeviceElement e = this->localDevices[i];
+			publish(roomState.roomTopicId, e.flash->getName(), 1);
+		}
+		return;
+	}
+
+	//if (retain) {
+		for (Forward forward : forwards) {
+			if (topicId == forward.srcId) {
+				std::cout << "forward " << topicId << " -> " << forward.dstId << std::endl;
+				publish(forward.dstId, data, length, qos);
+			}
+		}
+	//}
+
 
 	SystemTime time = getSystemTime();
 
@@ -80,94 +123,136 @@ void RoomControl::onPublished(uint16_t topicId, uint8_t const *data, int length,
 
 	// iterate over local devices
 	for (LocalDeviceElement e : this->localDevices) {
-		switch (e.flash->device.type) {
+		switch (e.flash->type) {
 		case Lin::Device::SWITCH2:
 			{
-				Switch2Device const *device = reinterpret_cast<Switch2Device const *>(e.flash);
-				Switch2State *state = reinterpret_cast<Switch2State *>(e.ram);
+				Switch2Device const &device = *reinterpret_cast<Switch2Device const *>(e.flash);
+				Switch2State &state = *reinterpret_cast<Switch2State *>(e.ram);
 
-				optional<float> value = parseFloat(str);
+				// check if the attribute list of the device is requested
+				if (topicId == state.deviceTopicId && message == "?") {
+					uint8_t flags = device.flags;
+					for (int i = 0; i < 2; ++i, flags >>= 2) {
+						// switches
+						Switch2State::Switches &ss = state.s[i];
+						uint8_t s = flags & 3;
+						if (s != 0) {
+							this->buffer << "ab"[i];
+							if (s == 2)
+								this->buffer << '0';
+							this->buffer << " s"; // only state
+							publish(state.deviceTopicId, this->buffer, 1);
+							if (s == 2) {
+								this->buffer[1] = '1';
+								publish(state.deviceTopicId, this->buffer, 1);
+							}
+							this->buffer.clear();
+						}
 
-				uint8_t flags = e.flash->device.flags >> 4;
-				uint8_t relays = state->relays;
-				uint8_t pressed = state->pressed;
+						// relays
+						Switch2State::Relays &sr = state.r[i];
+						uint8_t r = (flags >> 4) & 3;
+						if (r != 0) {
+							this->buffer << "xy"[i];
+							if (r == 2)
+								this->buffer << '0';
+							this->buffer << " c"; // command and state
+							publish(state.deviceTopicId, this->buffer, 1);
+							if (r == 2) {
+								this->buffer[1] = '1';
+								publish(state.deviceTopicId, this->buffer, 1);
+							}
+							this->buffer.clear();
+						}
+					}
+					return;
+				}
+
+				// try to parese float value
+				optional<float> value = parseFloat(message);
+
+				uint8_t flags = device.flags >> 4;
+				uint8_t const relays = state.relays;
 				uint8_t bit1 = 0x01;
 				for (int i = 0; i < 2; ++i, flags >>= 2, bit1 <<= 2) {
-					Switch2Device::Relays const &rd = device->r[i];
-					Switch2State::Relays &rs = state->r[i];
+					Switch2Device::Relays const &dr = device.r[i];
+					Switch2State::Relays &sr = state.r[i];
 
-					if (topicId == rs.topicId1 || topicId == rs.topicId2) {
+					if (topicId == sr.commandId1 || topicId == sr.commandId2) {
 						uint8_t bit2 = bit1 << 1;
 						uint8_t s = flags & 3;
 						if (s == 3) {
 							// blind (two interlocked relays)
 							if (value != null) {
 								// move to position in the range [0, 1]
-								relays &= ~(bit1 | bit2);
+								state.relays &= ~(bit1 | bit2);
 								if (*value >= 1.0f) {
 									// up with extra time
-									rs.timeout2 = time + rd.duration2 - rs.duration + 500ms;
-									relays |= bit1;
+									sr.timeout1 = time + dr.duration1 - sr.duration + 500ms;
+									state.relays |= bit1;
 								} else if (*value <= 0.0f) {
 									// down with extra time
-									rs.timeout2 = time + rs.duration + 500ms;
-									relays |= bit2;
+									sr.timeout1 = time + sr.duration + 500ms;
+									state.relays |= bit2;
 								} else {
-									// move to target percentage
-									SystemDuration targetDuration = rd.duration2 * *value;
-									if (targetDuration > rs.duration) {
+									// move to target value
+									SystemDuration targetDuration = dr.duration1 * *value;
+									if (targetDuration > sr.duration) {
 										// up
-										rs.timeout2 = time + targetDuration - rs.duration;
-										relays |= bit1;
+										sr.timeout1 = time + targetDuration - sr.duration;
+										state.relays |= bit1;
 									} else {
 										// down
-										rs.timeout2 = time + rs.duration - targetDuration;
-										relays |= bit2;
+										sr.timeout1 = time + sr.duration - targetDuration;
+										state.relays |= bit2;
 									}
 								}
-								nextTimeout = min(nextTimeout, rs.timeout2);
+								nextTimeout = min(nextTimeout, sr.timeout1);
 							
 							} else if (length == 1) {
 								bool up = data[0] == '+';
 								bool toggle = data[0] == '!';
 								bool press = up || toggle || data[0] == '-';
 								bool release = data[0] == '#';
-								bool p = (pressed & bit1) != 0;
+								bool p = (state.pressed & bit1) != 0;
 								if ((!p && press) || (p && release)) {
-									pressed ^= bit1;
+									state.pressed ^= bit1;
 								
 									if (relays & (bit1 | bit2)) {
 										// currently moving
-										bool stop = press || (release && time >= rs.timeout1) ;
+										bool stop = press || (release && time >= sr.timeout2) ;
 										if (stop) {
-											relays &= ~(bit1 | bit2);
+											// stop
+											state.relays &= ~(bit1 | bit2);
 										
 											// publish current blind position
-											int pos = (rs.duration * 100 + rd.duration2 / 2) / rd.duration2;
+											int pos = (sr.duration * 100 + dr.duration1 / 2) / dr.duration1;
 											//std::cout << "pos " << pos << std::endl;
 											this->buffer << pos;
-											publish(rs.topicId1, this->buffer, 1, true);
+											publish(sr.stateId1, this->buffer, 1, true);
 											this->buffer.clear();
 										}
 									} else {
 										// currently stopped
 										if (press) {
 											// start
-											rs.timeout1 = time + rd.duration1;
+											
+											// set rocker long press timeout
+											sr.timeout2 = time + dr.duration2;
 											
 											// use bit2 in pressed to store last direction and decide up/down on toggle
-											if (up || (toggle && (pressed & bit2) == 0)) {
+											if (up || (toggle && (state.pressed & bit2) == 0)) {
 												// up with extra time
-												rs.timeout2 = time + rd.duration2 - rs.duration + 500ms;
-												relays |= bit1;
-												pressed |= bit2;
+												sr.timeout1 = time + dr.duration1 - sr.duration + 500ms;
+												state.relays |= bit1;
+												state.pressed |= bit2;
 											} else {
 												// down with extra time
-												rs.timeout2 = time + rs.duration + 500ms;
-												relays |= bit2;
-												pressed &= ~bit2;
+												sr.timeout1 = time + sr.duration + 500ms;
+												state.relays |= bit2;
+												state.pressed &= ~bit2;
 											}
-											nextTimeout = min(nextTimeout, rs.timeout2);
+											nextTimeout = min(nextTimeout, sr.timeout1);
 										}
 									}
 								}
@@ -183,65 +268,81 @@ void RoomControl::onPublished(uint16_t topicId, uint8_t const *data, int length,
 							} else if (length == 1) {
 								command = data[0];
 							}
-							if (topicId == rs.topicId1) {
+							if (topicId == sr.commandId1) {
+								// relay 1
 								if (command != 0) {
-									if ((pressed & bit1) == 0) {
+									if ((state.pressed & bit1) == 0) {
 										// not pressed
 										bool toggle = command == '!';
 										on = command == '+' || (toggle && (relays & bit1) == 0);
 										if (toggle || on || command == '-') {
-											pressed |= bit1;
+											// press with command on, off or toggle
+											state.pressed |= bit1;
 											change = true;
 										}
 									} else {
 										// pressed
-										if (command == '#')
-											pressed &= ~bit1;
+										if (command == '#') {
+											// release
+											state.pressed &= ~bit1;
+										}
 									}
 								}
 								if (change) {
 									if (on) {
-										relays |= bit1;
-										rs.timeout1 = time + rd.duration1;
-										if (rd.duration1 > 0s)
-											nextTimeout = min(nextTimeout, rs.timeout1);
+										// set on
+										state.relays |= bit1;
+
+										// set on timeout
+										sr.timeout1 = time + dr.duration1;
+										if (dr.duration1 > 0s)
+											nextTimeout = min(nextTimeout, sr.timeout1);
 									} else {
-										relays &= ~bit1;
+										// set off
+										state.relays &= ~bit1;
 									}
 
-									// publish current switch state
-									if ((relays ^ state->relays) & bit1)
-										publish(rs.topicId1, &offOn[int(on)], 1, 1, true);
+									// publish current switch state if it has changed
+									if ((state.relays ^ relays) & bit1)
+										publish(sr.stateId1, &offOn[int(on)], 1, 1, true);
 								}
 							} else {
+								// relay 2
 								if (command != 0) {
-									if ((pressed & bit2) == 0) {
+									if ((state.pressed & bit2) == 0) {
 										// not pressed
 										bool toggle = command == '!';
 										on = command == '+' || (toggle && (relays & bit2) == 0);
 										if (toggle || on || command == '-') {
-											pressed |= bit2;
+											// press with command on, off or toggle
+											state.pressed |= bit2;
 											change = true;
 										}
 									} else {
 										// pressed
-										if (command == '#')
-											pressed &= ~bit2;
+										if (command == '#') {
+											// release
+											state.pressed &= ~bit2;
+										}
 									}
 								}
 								if (change) {
 									if (on) {
-										relays |= bit2;
-										rs.timeout2 = time + rd.duration2;
-										if (rd.duration2 > 0s)
-											nextTimeout = min(nextTimeout, rs.timeout2);
+										// set on
+										state.relays |= bit2;
+										
+										// set on timeout
+										sr.timeout2 = time + dr.duration2;
+										if (dr.duration2 > 0s)
+											nextTimeout = min(nextTimeout, sr.timeout2);
 									} else {
-										relays &= ~bit2;
+										// set off
+										state.relays &= ~bit2;
 									}
 
-									// publish current switch state
-									if ((relays ^ state->relays) & bit2)
-										publish(rs.topicId2, &offOn[int(on)], 1, 1, true);
+									// publish current switch state if it has changed
+									if ((state.relays ^ relays) & bit2)
+										publish(sr.stateId2, &offOn[int(on)], 1, 1, true);
 								}
 							}
 						}
@@ -249,13 +350,9 @@ void RoomControl::onPublished(uint16_t topicId, uint8_t const *data, int length,
 				}
 				
 				// send relay state to lin device if it has changed
-				if (relays != state->relays) {
-					state->relays = relays;
-					linSend(e.flash->device.id, &relays, 1);
+				if (state.relays != relays) {
+					linSend(device.id, &state.relays, 1);
 				}
-				state->pressed = pressed;
-				if (topicId == 5)
-					std::cout << "pressed " << int(pressed) << std::endl;
 			}
 			break;
 		}
@@ -274,7 +371,7 @@ void RoomControl::onLinReady() {
 		// check if device exists
 		bool found = false;
 		for (LocalDeviceElement e : this->localDevices) {
-			if (e.flash->device.id == linDevice.id) {
+			if (e.flash->id == linDevice.id) {
 				found = true;
 				break;
 			}
@@ -286,17 +383,17 @@ void RoomControl::onLinReady() {
 			memset(&this->temp, 0, sizeof(this->temp));
 		
 			// set device id and type
-			this->temp.localDevice.device = linDevice;
+			this->temp.linDevice = linDevice;
 
 			// initialize name with hex id
-			this->buffer.clear();
 			this->buffer << hex(linDevice.id);
 			this->temp.localDevice.setName(this->buffer);
-			
-this->temp.switch2Device.r[0].duration1 = 3s;
-this->temp.switch2Device.r[0].duration2 = 6500ms;
-this->temp.switch2Device.r[1].duration1 = 3s;
-this->temp.switch2Device.r[1].duration2 = 6500ms;
+			this->buffer.clear();
+
+this->temp.switch2Device.r[0].duration1 = 6500ms;
+this->temp.switch2Device.r[0].duration2 = 3s;
+this->temp.switch2Device.r[1].duration1 = 6500ms;
+this->temp.switch2Device.r[1].duration2 = 3s;
 
 			// add new device
 			int index = this->localDevices.size();
@@ -310,26 +407,29 @@ this->temp.switch2Device.r[1].duration2 = 6500ms;
 
 void RoomControl::onLinReceived(uint32_t deviceId, uint8_t const *data, int length) {
 	for (LocalDeviceElement e : this->localDevices) {
-		if (e.flash->device.id == deviceId) {
-			switch (e.flash->device.type) {
+		if (e.flash->id == deviceId) {
+			switch (e.flash->type) {
 			case Lin::Device::SWITCH2:
 				{
 					//uint8_t const commands[] = "#+-";
-					Switch2State *state = reinterpret_cast<Switch2State *>(e.ram);
-										
+					Switch2Device const &device = *reinterpret_cast<Switch2Device const *>(e.flash);
+					Switch2State &state = *reinterpret_cast<Switch2State *>(e.ram);
+
 					uint8_t switches = data[0];
-					uint8_t flags = e.flash->device.flags;
-					uint8_t change = switches ^ state->switches;
-					state->switches = switches;
+					uint8_t flags = device.flags;
+					uint8_t change = switches ^ state.switches;
+					state.switches = switches;
 					for (int i = 0; i < 2; ++i, switches >>= 2, flags >>= 2, change >>= 2) {
+						Switch2State::Switches &ss = state.s[i];
+						
 						uint8_t s = flags & 3;
 						if (s == 3) {
 							// rocker switch
-							uint8_t const commands[] = "#+-";
+							uint8_t const commands[] = "#+-!";
 
 							// check if state has changed
 							if (change & 3) {
-								publish(state->s[i].topicId1, &commands[switches & 3], 1, 1, true);
+								publish(ss.stateId1, &commands[switches & 3], 1, 1, true);
 							}
 						} else if (s != 0) {
 							// individual switches
@@ -337,10 +437,10 @@ void RoomControl::onLinReceived(uint32_t deviceId, uint8_t const *data, int leng
 
 							// check if state has changed
 							if (change & 1) {
-								publish(state->s[i].topicId1, &commands[switches & 1], 1, 1, true);
+								publish(ss.stateId1, &commands[switches & 1], 1, 1, true);
 							}
 							if (change & 2) {
-								publish(state->s[i].topicId2, &commands[(switches >> 1) & 1], 1, 1, true);
+								publish(ss.stateId2, &commands[(switches >> 1) & 1], 1, 1, true);
 							}
 						}
 					}
@@ -362,15 +462,6 @@ void RoomControl::onLinSent() {
 void RoomControl::onSystemTimeout3(SystemTime time) {
 	SystemTime nextTimeout = updateDevices(time);
 	setSystemTimeout3(nextTimeout);
-}
-
-
-// Clock
-// -----
-
-void RoomControl::onSecondElapsed() {
-	updateMenu(0, false);
-	setDisplay(this->bitmap);
 }
 
 
@@ -396,13 +487,12 @@ void RoomControl::onPotiChanged(int delta, bool activated) {
 
 void RoomControl::updateMenu(int delta, bool activated) {
 	// if menu entry was activated, read menu state from stack
-	if (this->activated) {
+	if (this->stackHasChanged) {
+		this->stackHasChanged = false;
 		this->state = this->stack[this->stackIndex].state;
 		this->selected = this->stack[this->stackIndex].selected;
 		this->selectedY = this->stack[this->stackIndex].selectedY;
 		this->yOffset = this->stack[this->stackIndex].yOffset;
-
-		this->activated = false;
 
 		// set entryIndex to a large value so that the value of this->selected "survives" first call to menu()
 		this->entryIndex = 0xffff;
@@ -448,8 +538,8 @@ void RoomControl::updateMenu(int delta, bool activated) {
 */
 			// enter menu if poti-switch was pressed
 			if (activated) {
-				this->activated = true;
 				this->stack[0] = {MAIN, 0, 0, 0};
+				this->stackHasChanged = true;
 			}
 		}
 		break;
@@ -458,28 +548,34 @@ void RoomControl::updateMenu(int delta, bool activated) {
 
 		if (entry("Local Devices"))
 			push(LOCAL_DEVICES);
-
-		/*if (entry("Switches"))
-			push(EVENTS);
 		if (entry("Timers"))
 			push(TIMERS);
-		if (entry("Scenarios"))
-			push(SCENARIOS);
-		if (entry("Devices"))
-			push(DEVICES);*/
+		if (entry("Connections"))
+			push(CONNECTIONS);
 		if (entry("Exit")) {
-			this->activated = false;
 			this->state = IDLE;
 		}
 		break;
-
 	case LOCAL_DEVICES:
+		menu(delta, activated);
 		{
 			// list devices
-			menu(delta, activated);
 			int deviceCount = this->localDevices.size();
 			for (int i = 0; i < deviceCount; ++i) {
 				LocalDeviceElement e = this->localDevices[i];
+				LocalDevice const &device = *e.flash;
+				this->buffer << device.getName() << ": ";
+				switch (device.type) {
+				case Lin::Device::SWITCH2:
+					this->buffer << "Switch";
+					break;
+				}
+				if (entry(this->buffer)) {
+					// edit device
+					this->temp.localDevice = device;
+					this->tempState = e.ram;
+					push(EDIT_LOCAL_DEVICE);
+				}
 				/*DeviceState &deviceState = this->deviceStates[i];
 				this->buffer = device.name, ": ";
 				addDeviceStateToString(device, deviceState);
@@ -489,6 +585,7 @@ void RoomControl::updateMenu(int delta, bool activated) {
 					this->actions = &this->u.device.actions;
 					push(EDIT_DEVICE);
 				}*/
+				this->buffer.clear();
 			}
 			/*if (deviceCount < DEVICE_COUNT && this->storage.hasSpace(1, offsetof(Device, actions.actions[8]))) {
 				if (entry("Add Device")) {
@@ -507,6 +604,469 @@ void RoomControl::updateMenu(int delta, bool activated) {
 				pop();
 		}
 		break;
+	case EDIT_LOCAL_DEVICE:
+		menu(delta, activated);
+
+		// device name
+		entry(this->temp.localDevice.getName());
+		
+		// device specific properties
+		switch (this->temp.localDevice.type) {
+		case Lin::Device::SWITCH2:
+			{
+				Switch2State *state = reinterpret_cast<Switch2State *>(this->tempState);
+				line();
+				entry("Switch A");
+				entry("Type: Two Buttons");
+				line();
+				entry("Switch B");
+				entry("Type: Rocker");
+				line();
+				entry("Relays A");
+				entry("Type: Two Relays");
+				line();
+				entry("Relays B");
+				entry("Type: Blind");
+				line();
+			}
+			break;
+		}
+	
+		// save changes / cancel
+		if (entry("Save Device")) {
+			this->localDevices.write(getThisIndex(), &this->temp.localDevice);
+			pop();
+		}
+		if (entry("Cancel"))
+			pop();
+
+		break;
+	case TIMERS:
+		menu(delta, activated);
+		{
+			// list timers
+			int timerCount = this->timers.size();
+			for (int i = 0; i < timerCount; ++i) {
+				TimerElement e = this->timers[i];
+				Timer const &timer = *e.flash;
+				
+				int minutes = timer.time.getMinutes();
+				int hours = timer.time.getHours();
+				this->buffer << dec(hours) << ':' << dec(minutes, 2);
+				this->buffer << "    ";
+				if (entryWeekdays(this->buffer, timer.time.getWeekdays())) {
+					// edit timer
+					this->temp.timer = timer;
+					this->tempState = e.ram;
+					push(EDIT_TIMER);
+				}
+
+				this->buffer.clear();
+			}
+			
+			// add timer
+			if (entry("Add Timer")) {
+				// check if list of timers is full
+				if (this->timers.size() < MAX_TIMER_COUNT) {
+					this->temp.timer.time = {};
+					
+					// check for space for a timer with one command and topic length of 64
+					this->temp.timer.commandCount = 1;
+					this->temp.timer.u.commands[0].topicLength = 64;
+					if (timers.hasSpace(&this->temp.timer)) {
+						// clear commands again
+						this->temp.timer.commandCount = 0;
+						push(ADD_TIMER);
+					} else {
+						// error: out of memory
+						// todo
+					}
+				} else {
+					// error: maximum number of timers reached
+					// todo
+				}
+			}
+
+			// exit
+			if (entry("Exit"))
+				pop();
+		}
+		break;
+	case EDIT_TIMER:
+	case ADD_TIMER:
+		menu(delta, activated);
+		{
+			int edit;
+			uint8_t editBegin[6];
+			uint8_t editEnd[6];
+			
+			// get timer
+			Timer &timer = this->temp.timer;
+			TimerState &timerState = *(TimerState*)this->tempState;
+			
+			// get time
+			int hours = timer.time.getHours();
+			int minutes = timer.time.getMinutes();
+			int weekdays = timer.time.getWeekdays();
+
+			// edit time
+			edit = getEdit(2);
+			if (edit > 0) {
+				if (edit == 1)
+					hours = (hours + delta + 24) % 24;
+				else
+					minutes = (minutes + delta + 60) % 60;
+			}
+
+			// time menu entry
+			this->buffer << "Time: ";
+			editBegin[1] = this->buffer.length();
+			this->buffer << dec(hours);
+			editEnd[1] = this->buffer.length();
+			this->buffer << ':';
+			editBegin[2] = this->buffer.length();
+			this->buffer << dec(minutes, 2);
+			editEnd[2] = this->buffer.length();
+			entry(this->buffer, edit > 0, editBegin[edit], editEnd[edit]);
+			this->buffer.clear();
+
+			// edit weekdays
+			edit = getEdit(7);
+			if (edit > 0 && delta != 0)
+				weekdays ^= 1 << (edit - 1);
+
+			// weekdays menu entry
+			this->buffer << "Days: ";
+			entryWeekdays(this->buffer, weekdays, edit > 0, this->edit - 1);
+			this->buffer.clear();
+
+			// write back
+			timer.time = makeClockTime(weekdays, hours, minutes);
+
+			// commands
+			line();
+			{
+				uint8_t *buffer = timer.u.buffer;
+				uint8_t *end = array::end(timer.u.buffer);
+				uint8_t *data = buffer + sizeof(Command) * timer.commandCount;
+				int commandIndex = 0;
+				while (commandIndex < timer.commandCount) {
+					// get command
+					Command &command = timer.u.commands[commandIndex];
+															
+					// edit value type
+					uint8_t *value = data;
+					edit = getEdit(1 + command.getValueCount());
+					if (edit == 1 && delta != 0) {
+						// edit value type
+						command.changeType(delta, value, end);
+					}
+					int valueSize = command.getValueSize();
+
+					// get topic
+					String topic(String(data + valueSize, command.topicLength));
+					
+					// menu entry for type
+					editBegin[1] = this->buffer.length();
+					switch (command.type) {
+					case Command::BUTTON:
+						// button state is release or press, one data byte
+						this->buffer << "Button: ";
+						editEnd[1] = this->buffer.length() - 1;
+
+						if (edit == 2 && delta != 0)
+							value[1] ^= 1;
+						
+						editBegin[2] = this->buffer.length();
+						this->buffer << buttonStates[data[0] & 1];
+						editEnd[2] = this->buffer.length();
+						break;
+					case Command::ROCKER:
+						// rocker state is release, up or down, one data byte
+						this->buffer << "Rocker: ";
+						editEnd[1] = this->buffer.length() - 1;
+
+						if (edit == 2)
+							value[0] = (value[0] + delta + 30) % 3;
+						
+						editBegin[2] = this->buffer.length();
+						this->buffer << rockerStates[data[0] & 3];
+						editEnd[2] = this->buffer.length();
+						break;
+					case Command::BINARY:
+						// binary state is off or on, one data byte
+						this->buffer << "Binary: ";
+						editEnd[1] = this->buffer.length() - 1;
+
+						if (edit == 2 && delta != 0)
+							value[0] ^= 1;
+
+						editBegin[2] = this->buffer.length();
+						this->buffer << binaryStates[data[0] & 1];
+						editEnd[2] = this->buffer.length();
+						break;
+					case Command::VALUE8:
+						// value 0-255, one data byte
+						this->buffer << "Value 0-255: ";
+						editEnd[1] = this->buffer.length() - 1;
+
+						if (edit == 2)
+							value[0] += delta;
+						
+						editBegin[2] = this->buffer.length();
+						this->buffer << dec(data[0]);
+						editEnd[2] = this->buffer.length();
+						break;
+					case Command::PERCENTAGE:
+						// percentage 0-100, one data byte
+						this->buffer << "Percentage: ";
+						editEnd[1] = this->buffer.length() - 1;
+
+						if (edit == 2)
+							value[0] = (value[0] + delta + 100) % 100;
+						
+						editBegin[2] = this->buffer.length();
+						this->buffer << dec(data[0]) << '%';
+						editEnd[2] = this->buffer.length();
+						break;
+					case Command::TEMPERATURE:
+						// room temperature 8° - 33,5°
+						this->buffer << "Temperature: ";
+						editEnd[1] = this->buffer.length() - 1;
+
+						if (edit == 2)
+							value[0] += delta;
+						
+						editBegin[2] = this->buffer.length();
+						this->buffer << dec(8 + data[0] / 10) << '.' << dec(data[0] % 10);
+						editEnd[2] = this->buffer.length();
+						this->buffer << "oC";
+						break;
+					case Command::COLOR_RGB:
+						this->buffer << "RGB Color: ";
+						editEnd[1] = this->buffer.length() - 1;
+
+						if (edit == 2)
+							value[0] += delta;
+						if (edit == 3)
+							value[1] += delta;
+						if (edit == 4)
+							value[2] += delta;
+
+						editBegin[2] = this->buffer.length();
+						this->buffer << dec(data[0]);
+						editEnd[2] = this->buffer.length();
+						this->buffer << ' ';
+						
+						editBegin[3] = this->buffer.length();
+						this->buffer << dec(data[1]);
+						editEnd[3] = this->buffer.length();
+						this->buffer << ' ';
+
+						editBegin[4] = this->buffer.length();
+						this->buffer << dec(data[2]);
+						editEnd[4] = this->buffer.length();
+						
+						break;
+					case Command::TYPE_COUNT:
+						;
+					}
+					entry(this->buffer, edit > 0, editBegin[edit], editEnd[edit]);
+					this->buffer.clear();
+					
+					// menu entry for topic
+					if (entry(!topic.empty() ? topic : "Select Topic")) {
+						// check if current topic has the format <room>/<device>/<attribute>
+						int p1 = topic.indexOf('/');
+						int p2 = topic.indexOf('/', p1 + 1);
+						int p3 = topic.indexOf('/', p2 + 1);
+						
+						String rd;
+						if (p1 > 0 && p2 > p1 + 1 && p3 == -1) {
+							// get <room>/<device>
+							rd = topic.substring(0, p2);
+							this->topicDepth = 2;
+						} else {
+							// start at this room
+							rd = this->room[0].flash->name;
+							this->topicDepth = 1;
+						}
+
+						// selected topic is <prefix>/<room>/<device> or <prefix>/<room>
+						this->selectedTopic << prefix << '/' << rd;
+						
+						// only list attributes that have a command topic (ending with /cmd)
+						this->onlyCommands = true;
+
+						// subscribe to selected topic
+						this->selectedTopicId = subscribeTopic(this->selectedTopic).topicId;
+						publish(this->selectedTopicId, "?", 1);
+						push(SELECT_TOPIC);
+						this->tempIndex = commandIndex;
+					}
+					
+					// menu entry for testing the command
+					if (entry("Test")) {
+						publishValue(timerState.topicIds[commandIndex], command.type, value);
+					}
+					
+					// menu entry for deleting the command
+					int size = command.topicLength + valueSize;
+					if (entry("Delete Command")) {
+						// erase command
+						//array::erase(buffer, data - buffer, sizeof(Command) * commandIndex, sizeof(Command));
+						array::erase(buffer + sizeof(Command) * commandIndex, data, sizeof(Command));
+						--timer.commandCount;
+						data -= sizeof(Command);
+
+						// erase data
+						//array::erase(buffer, end - buffer, data - buffer, sizeof(Command) + size);
+						array::erase(data, buffer, sizeof(Command) + size);
+					
+						// select next menu entry (-4 + 1)
+						this->selected -= 3;
+					} else {
+						++commandIndex;
+						data += size;
+					}
+					
+					line();
+				}
+				
+				// add command
+				if (timer.commandCount < Timer::MAX_COMMAND_COUNT) {
+					if (entry("Add Command")) {
+						// insert data
+						//array::insert(buffer, end - buffer, sizeof(Command) * commandIndex, sizeof(Command));
+						array::insert(buffer + sizeof(Command) * commandIndex, end, sizeof(Command));
+						data += sizeof(Command);
+
+						// initialize new command
+						Command &command = timer.u.commands[commandIndex];
+						command.type = Command::BINARY;
+						command.topicLength = 0;
+						*data = 0;
+						
+						++timer.commandCount;
+					}
+					line();
+				}
+			}
+			
+			// save, delete, cancel
+			if (entry("Save Timer")) {
+				this->timers.write(getThisIndex(), &this->temp.timer);
+				pop();
+			}
+			if (this->state == EDIT_TIMER) {
+				if (entry("Delete Timer")) {
+					this->timers.erase(getThisIndex());
+					pop();
+				}
+			}
+			if (entry("Cancel"))
+				pop();
+		}
+		break;
+	case SELECT_TOPIC:
+	//case SELECT_COMMAND_TOPIC:
+		menu(delta, activated);
+		
+		// menu entry for "parent directory" (select device or room)
+		if (this->topicDepth > 0) {
+			static char const* components[] = {"Room", "Device"};
+			this->buffer << "Select " << components[this->topicDepth - 1];
+			if (entry(this->buffer)) {
+				// unsubscribe from current topic
+				unsubscribeTopic(this->selectedTopic);
+
+				// go to "parent directory"
+				--this->topicDepth;
+				this->selectedTopic.setLength(this->selectedTopic.lastIndexOf('/'));
+				
+				// subscribe to new topic
+				this->selectedTopicId = subscribeTopic(this->selectedTopic).topicId;
+
+				// request the new topic list, gets filled in onPublished
+				this->topicSet.clear();
+				publish(this->selectedTopicId, "?", 1);
+			}
+			this->buffer.clear();
+		}
+
+		// menu entry for each room/device/attribute
+		String selected;
+		for (String topic : this->topicSet) {
+			if (entry(topic))
+				selected = topic;
+		}
+		if (!selected.empty()) {
+			++this->topicDepth;
+			
+			// unsubscribe from selected topic if it is not one of the own global topics
+			RoomState *roomState = this->room[0].ram;
+			if (this->selectedTopicId != roomState->houseTopicId && this->selectedTopicId != roomState->roomTopicId)
+				unsubscribeTopic(this->selectedTopic);
+			
+			// append new element (room, device or attribute) to selected topic
+			this->selectedTopic << '/' << selected;
+			
+			// clear list of elements
+			this->topicSet.clear();
+			
+			if (this->topicDepth < 3) {
+				// enter next level
+				this->selectedTopicId = subscribeTopic(this->selectedTopic).topicId;
+				publish(this->selectedTopicId, "?", 1);
+			} else {
+				// exit menu and write topic back to command
+				pop();
+				State state = this->stack[this->stackIndex].state;
+				
+				switch (state) {
+				case EDIT_TIMER:
+				case ADD_TIMER:
+					{
+						Timer &timer = this->temp.timer;
+						TimerState &timerState = *(TimerState*)this->tempState;
+						
+						// set topic to command
+						int commandIndex = this->tempIndex;
+						Command &command = timer.u.commands[commandIndex];
+						uint8_t *buffer = timer.u.buffer;
+						uint8_t *end = array::end(timer.u.buffer);
+						uint8_t *data = buffer + sizeof(Command) * timer.commandCount;
+						for (int i = 0; i < commandIndex; ++i)
+							data += timer.u.commands[i].getFlashSize();
+						data += command.getValueSize();
+						String topic = this->selectedTopic.string().substring(String(prefix).length + 1);
+						command.setTopic(topic, data, end);
+						
+						// register topic for command
+						this->selectedTopic << "/cmd";
+						timerState.topicIds[commandIndex] = registerTopic(this->selectedTopic).topicId;
+					}
+					break;
+				default:
+					break;
+				}
+
+				// clear
+				this->selectedTopic.clear();
+				this->selectedTopicId = 0;
+			}
+		}
+		
+		if (entry("Cancel")) {
+			unsubscribeTopic(this->selectedTopic);
+			this->selectedTopic.clear();
+			this->selectedTopicId = 0;
+			this->topicSet.clear();
+			pop();
+		}
+
+		break;
+
 /*
 	case EVENTS:
 		{
@@ -1016,7 +1576,7 @@ void RoomControl::updateMenu(int delta, bool activated) {
 // -----------
 
 void RoomControl::menu(int delta, bool activated) {
-	// update selected according to delta motion of poti
+	// update selected according to delta motion of poti when not in edit mode
 	if (this->edit == 0) {
 		this->selected += delta;
 		if (this->selected < 0) {
@@ -1028,6 +1588,8 @@ void RoomControl::menu(int delta, bool activated) {
 			this->selected = this->entryIndex - 1;
 		}
 	}
+	
+	// set activated state for selecting the current menu entry
 	this->activated = activated;
 
 
@@ -1082,7 +1644,7 @@ bool RoomControl::entry(String s, bool underline, int begin, int end) {
 	return selected && this->activated;
 }
 
-bool RoomControl::entryWeekdays(const char* s, int weekdays, bool underline, int index) {
+bool RoomControl::entryWeekdays(String s, int weekdays, bool underline, int index) {
 	int x = 10;
 	int y = this->entryY + 2 - this->yOffset;
 
@@ -1120,156 +1682,212 @@ bool RoomControl::entryWeekdays(const char* s, int weekdays, bool underline, int
 	return selected && this->activated;
 }
 
-bool RoomControl::isEdit(int editCount) {
+int RoomControl::getEdit(int editCount) {
 	if (this->selected == this->entryIndex) {
 		// cycle edit mode if activated
 		if (this->activated) {
 			this->edit = this->edit < editCount ? this->edit + 1 : 0;
 			this->activated = false;
 		}
-		return this->edit > 0;
+		return this->edit;
 	}
-	return false;
+	return 0;
 }
 
 void RoomControl::push(State state) {
 	this->stack[this->stackIndex] = {this->state, this->selected, this->selectedY, this->yOffset};
 	++this->stackIndex;
 	this->stack[this->stackIndex] = {state, 0, 0, 0};
+	this->stackHasChanged = true;
 }
 
 void RoomControl::pop() {
 	--this->stackIndex;
+	this->stackHasChanged = true;
+}
+
+
+// Room
+// ----
+
+int RoomControl::Room::getFlashSize() const {
+	int length = array::size(this->name);
+	for (int i = 0; i < array::size(this->name); ++i) {
+		if (this->name[i] == 0) {
+			length = i + 1;
+			break;
+		}
+	}
+	return offsetof(Room, name[length]);
+}
+
+int RoomControl::Room::getRamSize() const {
+	return sizeof(RoomState);
 }
 
 
 // Devices
 // -------
 
-int RoomControl::LocalDevice::flashSize() const {
-	switch (this->device.type) {
+int RoomControl::LocalDevice::getFlashSize() const {
+	switch (this->type) {
 	case Lin::Device::SWITCH2:
 		{
-			Switch2Device const *device = reinterpret_cast<Switch2Device const *>(this);
+			Switch2Device const &device = *reinterpret_cast<Switch2Device const *>(this);
 			
 			// determine length of name including trailing zero if it fits into fixed size string
-			int length = size(device->name);
-			for (int i = 0; i < size(device->name); ++i) {
-				if (device->name[i] == 0) {
+			int length = array::size(device.name);
+			for (int i = 0; i < array::size(device.name); ++i) {
+				if (device.name[i] == 0) {
 					length = i + 1;
 					break;
 				}
 			}
 
 			// return actual byte size of the struct
-			return intptr_t(&((Switch2Device*)nullptr)->name[length]);
+			return getOffset(Switch2Device, name[length]);
 		}
 	}
 }
 
-int RoomControl::LocalDevice::ramSize() const {
-	switch (this->device.type) {
+int RoomControl::LocalDevice::getRamSize() const {
+	switch (this->type) {
 	case Lin::Device::SWITCH2:
 		return sizeof(Switch2State);
 	}
 }
 
 String RoomControl::LocalDevice::getName() const {
-	switch (this->device.type) {
+	switch (this->type) {
 	case Lin::Device::SWITCH2:
 		return String(reinterpret_cast<Switch2Device const *>(this)->name);
 	}
 }
 
 void RoomControl::LocalDevice::setName(String name) {
-	switch (this->device.type) {
+	switch (this->type) {
 	case Lin::Device::SWITCH2:
 		assign(reinterpret_cast<Switch2Device *>(this)->name, name);
 		break;
 	}
 }
 
+void RoomControl::LocalDevice::operator =(LocalDevice const &device) {
+	memcpy(this, &device, device.getFlashSize());
+}
+
 // todo don't register all topics in one go, message buffer may overflow
 void RoomControl::subscribeDevices() {
-	// prifix of mqtt topic
-	this->buffer.clear();
-	this->buffer << "huasi/";
-	int prefixLength = this->buffer.length();
 	
-	// register topics for devices
-	for (LocalDeviceElement e : this->localDevices) {
-		// append device name to topic
-		this->buffer.setLength(prefixLength);
-		this->buffer << e.flash->getName() << '/';
-		int deviceLength = this->buffer.length();
+	// register/subscribe room topics
+	RoomElement e = this->room[0];
+	Room const &room = *e.flash;
+	RoomState &roomState = *e.ram;
 
-		switch (e.flash->device.type) {
-		case Lin::Device::SWITCH2:
-			{
-				Switch2State *state = reinterpret_cast<Switch2State *>(e.ram);
-				
-				uint8_t flags = e.flash->device.flags;
-				for (int i = 0; i < 2; ++i, flags >>= 2) {
-					   // switches
-					   uint8_t s = flags & 3;
-					   if (s != 0) {
-							   this->buffer.setLength(deviceLength);
-							   this->buffer << 's' << i * 2;
-							   state->s[i].topicId1 = registerTopic(this->buffer).topicId;
-					   }
-					   if (s == 2) {
-							   this->buffer.setLength(deviceLength);
-							   this->buffer << 's' << i * 2 + 1;
-							   state->s[i].topicId2 = registerTopic(this->buffer).topicId;
-					   }
+	// house topic (room name is published when "?" is received on this topic)
+	this->buffer << prefix;
+	//int lenght = this->buffer.length();
+	roomState.houseTopicId = registerTopic(this->buffer).topicId;
 
-					   // relays
-					   uint8_t r = (flags >> 4) & 3;
-					   if (r != 0) {
-							   this->buffer.setLength(deviceLength);
-							   this->buffer << 'r' << i * 2;
-							   state->r[i].topicId1 = subscribeTopic(this->buffer).topicId;
-					   }
-					   if (r == 2) {
-							   this->buffer.setLength(deviceLength);
-							   this->buffer << 'r' << i * 2 + 1;
-							   state->r[i].topicId2 = subscribeTopic(this->buffer).topicId;
-					   }
-				}
-				
-				/*
-				this->buffer.setLength(deviceLength);
-				this->buffer << "a";
-				state->a = registerTopic(this->buffer).topicId;
+	// toom topic (device names are published when "?" is received on this topic)
+	this->buffer << '/' << room.name;
+	roomState.roomTopicId = registerTopic(this->buffer).topicId;
+	this->buffer.clear();
 
-				this->buffer.setLength(deviceLength);
-				this->buffer << "b";
-				state->b = registerTopic(this->buffer).topicId;
-			
-				this->buffer.setLength(deviceLength);
-				this->buffer << "x";
-				state->r[0].topicId1 = subscribeTopic(this->buffer).topicId;
 
-				this->buffer.setLength(deviceLength);
-				this->buffer << "y";
-				state->r[1].topicId1 = subscribeTopic(this->buffer).topicId;
-			*/
-			}
-			break;
-		}
+	// register/subscribe device topics
+	for (int i = 0; i < this->localDevices.size(); ++i) {
+		subscribeDevice(i);
 	}
 
-this->forwards[0].srcTopic = subscribeTopic("huasi/00000001/s0").topicId;
-this->forwards[0].dstTopic = registerTopic("huasi/00000001/r0").topicId;
-this->forwards[1].srcTopic = subscribeTopic("huasi/00000001/s2").topicId;
-this->forwards[1].dstTopic = registerTopic("huasi/00000001/r2").topicId;
-this->forwards[2].srcTopic = subscribeTopic("huasi/00000001/s3").topicId;
-this->forwards[2].dstTopic = registerTopic("huasi/00000001/r3").topicId;
-this->forwards[3].srcTopic = subscribeTopic("huasi/00000002/s0").topicId;
-this->forwards[3].dstTopic = registerTopic("huasi/00000002/r0").topicId;
-this->forwards[4].srcTopic = subscribeTopic("huasi/00000002/s2").topicId;
-this->forwards[4].dstTopic = registerTopic("huasi/00000002/r2").topicId;
+	// register timers
+	for (int i = 0; i < this->timers.size(); ++i) {
+		registerTimer(i);
+	}
 
+this->forwards[0].srcId = subscribeTopic("rc/room/00000001/a").topicId;
+this->forwards[0].dstId = registerTopic("rc/room/00000001/x/cmd").topicId;
+this->forwards[1].srcId = subscribeTopic("rc/room/00000001/b0").topicId;
+this->forwards[1].dstId = registerTopic("rc/room/00000001/y0/cmd").topicId;
+this->forwards[2].srcId = subscribeTopic("rc/room/00000001/b1").topicId;
+this->forwards[2].dstId = registerTopic("rc/room/00000001/y1/cmd").topicId;
+this->forwards[3].srcId = subscribeTopic("rc/room/00000002/a").topicId;
+this->forwards[3].dstId = registerTopic("rc/room/00000002/x/cmd").topicId;
+this->forwards[4].srcId = subscribeTopic("rc/room/00000002/b0").topicId;
+this->forwards[4].dstId = registerTopic("rc/room/00000002/y/cmd").topicId;
+
+}
+
+void RoomControl::subscribeDevice(int index) {
+	LocalDeviceElement e = this->localDevices[index];
+	
+	// <prefix>/<room>
+	this->buffer << prefix << '/' << this->room[0].flash->name;
+	{
+		LocalDevice const &device = *reinterpret_cast<LocalDevice const *>(e.flash);
+		DeviceState &state = *reinterpret_cast<DeviceState *>(e.ram);
+		
+		// <prefix>/<room>/<device>
+		this->buffer << '/' << device.getName();
+		state.deviceTopicId = registerTopic(this->buffer).topicId;
+		//int l = this->buffer.length();
+
+		// <prefix>/<room>/<device>/cmd
+		//this->buffer << "/cmd";
+		//state.deviceCommand = subscribeTopic(this->buffer).topicId;
+		//this->buffer.setLength(l);
+	}
+	
+	this->buffer << '/';
+	int deviceLength = this->buffer.length();
+
+	switch (e.flash->type) {
+	case Lin::Device::SWITCH2:
+		{
+			Switch2Device const &device = *reinterpret_cast<Switch2Device const *>(e.flash);
+			Switch2State &state = *reinterpret_cast<Switch2State *>(e.ram);
+			
+			uint8_t flags = device.flags;
+			for (int i = 0; i < 2; ++i, flags >>= 2) {
+				// switches
+				Switch2State::Switches &ss = state.s[i];
+				uint8_t s = flags & 3;
+				if (s != 0) {
+					this->buffer.setLength(deviceLength);
+					this->buffer << "ab"[i];
+					if (s == 2)
+						this->buffer << '0';
+					ss.stateId1 = registerTopic(this->buffer).topicId;
+					if (s == 2) {
+						this->buffer.setLength(deviceLength + 1);
+						this->buffer << '1';
+						ss.stateId2 = registerTopic(this->buffer).topicId;
+					}
+				}
+
+				// relays
+				Switch2State::Relays &sr = state.r[i];
+				uint8_t r = (flags >> 4) & 3;
+				if (r != 0) {
+					this->buffer.setLength(deviceLength);
+					this->buffer << "xy"[i];
+					if (r == 2)
+						this->buffer << '0';
+					sr.stateId1 = subscribeTopic(this->buffer).topicId;
+					this->buffer << "/cmd";
+					sr.commandId1 = subscribeTopic(this->buffer).topicId;
+					if (r == 2) {
+						this->buffer.setLength(deviceLength + 1);
+						this->buffer << '1';
+						sr.stateId2 = subscribeTopic(this->buffer).topicId;
+						this->buffer << "/cmd";
+						sr.commandId2 = subscribeTopic(this->buffer).topicId;
+					}
+				}
+			}
+		}
+		break;
+	}
 	this->buffer.clear();
 }
 
@@ -1288,78 +1906,77 @@ SystemTime RoomControl::updateDevices(SystemTime time) {
 
 	// iterate over local devices
 	for (LocalDeviceElement e : this->localDevices) {
-		uint8_t flags = e.flash->device.flags;
-		switch (e.flash->device.type) {
+		switch (e.flash->type) {
 		case Lin::Device::SWITCH2:
 			{
-				Switch2Device const *device = reinterpret_cast<Switch2Device const *>(e.flash);
-				Switch2State *state = reinterpret_cast<Switch2State *>(e.ram);
+				Switch2Device const &device = *reinterpret_cast<Switch2Device const *>(e.flash);
+				Switch2State &state = *reinterpret_cast<Switch2State *>(e.ram);
 
-				uint8_t relays = state->relays;
+				uint8_t const relays = state.relays;
 				uint8_t relayBit1 = 0x01;
-				uint8_t f = flags >> 4;
+				uint8_t f = device.flags >> 4;
 				for (int i = 0; i < 2; ++i) {
-					Switch2Device::Relays const &rd = device->r[i];
-					Switch2State::Relays &rs = state->r[i];
+					Switch2Device::Relays const &dr = device.r[i];
+					Switch2State::Relays &sr = state.r[i];
 					uint8_t relayBit2 = relayBit1 << 1;
 
 					if ((f & 3) == 3) {
 						// blind (two interlocked relays)
-						if (relays & (relayBit1 | relayBit2)) {
+						if (state.relays & (relayBit1 | relayBit2)) {
 							// currently moving
-							if (relays & relayBit1) {
+							if (state.relays & relayBit1) {
 								// currently moving up
-								rs.duration += duration;
-								if (rs.duration > rd.duration2)
-									rs.duration = rd.duration2;
+								sr.duration += duration;
+								if (sr.duration > dr.duration1)
+									sr.duration = dr.duration1;
 
 							} else {
 								// currently moving down
-								rs.duration -= duration;
-								if (rs.duration < SystemDuration())
-									rs.duration = SystemDuration();
+								sr.duration -= duration;
+								if (sr.duration < 0s)
+									sr.duration = 0s;
 
 							}
 						
 							// stop if run time has passed
 							int decimalCount;
-							if (time >= rs.timeout2) {
+							if (time >= sr.timeout1) {
 								// stop
-								relays &= ~(relayBit1 | relayBit2);
+								state.relays &= ~(relayBit1 | relayBit2);
 								decimalCount = 3;
 							} else {
 								// calc next timeout
-								nextTimeout = min(nextTimeout, rs.timeout2);
+								nextTimeout = min(nextTimeout, sr.timeout1);
 								decimalCount = 2;
 							}
 							
-							if (report || time >= rs.timeout2) {
+							if (report || time >= sr.timeout1) {
 								// publish current position
-								float pos = rs.duration / rd.duration2;
+								float pos = sr.duration / dr.duration1;
 								this->buffer << flt(pos, 0, decimalCount);
-								publish(rs.topicId1, this->buffer, 1, true);
+								publish(sr.stateId1, this->buffer, 1, true);
 								this->buffer.clear();
 							}
 						}
 
 					} else if ((f & 3) != 0) {
 						// one or two relays
-						if (relays & relayBit1) {
+						if (state.relays & relayBit1) {
 							// relay 1 currently on, check if timeout elapsed
-							if (rd.duration1 > 0s && time >= rs.timeout1) {
-								relays &= ~relayBit1;
+							if (dr.duration1 > 0s && time >= sr.timeout1) {
+								state.relays &= ~relayBit1;
 								
 								// report state change
-								publish(rs.topicId1, &offOn[0], 1, 1, true);
+								publish(sr.stateId1, &offOn[0], 1, 1, true);
 							}
 						}
-						if (relays & relayBit2) {
+						if (state.relays & relayBit2) {
 							// relay 2 currently on, check if timeout elapsed
-							if (rd.duration2 > 0s && time >= rs.timeout2) {
-								relays &= ~relayBit2;
+							if (dr.duration2 > 0s && time >= sr.timeout2) {
+								state.relays &= ~relayBit2;
 
 								// report state change
-								publish(rs.topicId2, &offOn[0], 1, 1, true);
+								publish(sr.stateId2, &offOn[0], 1, 1, true);
 							}
 						}
 					}
@@ -1369,13 +1986,177 @@ SystemTime RoomControl::updateDevices(SystemTime time) {
 				}
 
 				// send relay state to lin device if it has changed
-				if (relays != state->relays) {
-					state->relays = relays;
-					linSend(e.flash->device.id, &relays, 1);
+				if (state.relays != relays) {
+					linSend(device.id, &state.relays, 1);
 				}
 			}
 			break;
 		}
 	}
 	return nextTimeout;
+}
+
+
+// Command
+// -------
+
+int RoomControl::Command::getValueSize() const {
+	switch (this->type) {
+	case COLOR_RGB:
+		return 3;
+	default:
+		return 1;
+	}
+}
+
+int RoomControl::Command::getValueCount() const {
+	switch (this->type) {
+	case COLOR_RGB:
+		return 3;
+	default:
+		return 1;
+	}
+}
+
+void RoomControl::Command::changeType(int delta, uint8_t *data, uint8_t *end) {
+	// change value type
+	int oldSize = getValueSize();
+	this->type = Type((uint32_t(this->type) + delta + TYPE_COUNT) % uint32_t(TYPE_COUNT));
+	int newSize = getValueSize();
+	
+	// move data of topic and following commands
+	if (newSize > oldSize)
+		array::insert(data, end, newSize - oldSize);
+	else if (newSize < oldSize)
+		array::erase(data, end, oldSize - newSize);
+	
+	// clear value
+	array::fill(data, data + newSize, 0);
+}
+
+void RoomControl::Command::setTopic(String topic, uint8_t *data, uint8_t *end) {
+	int oldSize = this->topicLength;
+	int newSize = topic.length;
+
+	// move data of following commands
+	if (newSize > oldSize)
+		array::insert(data, end, newSize - oldSize);
+	else if (newSize < oldSize)
+		array::erase(data, end, oldSize - newSize);
+
+	array::copy(topic.begin(), topic.end(), data);
+	this->topicLength = newSize;
+}
+
+void RoomControl::publishValue(uint16_t topicId, Command::Type type, uint8_t const *value) {
+	switch (type) {
+	case Command::BUTTON:
+		this->buffer << "#!"[*value];
+		break;
+	case Command::ROCKER:
+		this->buffer << "#+-"[*value];
+		break;
+	case Command::BINARY:
+		this->buffer << "01"[*value];
+		break;
+	case Command::VALUE8:
+		this->buffer << dec(*value);
+		break;
+	case Command::PERCENTAGE:
+		this->buffer << flt(*value * 0.01f, 0, 2);
+		break;
+	case Command::TEMPERATURE:
+		this->buffer << flt(8.0f + *value * 0.1f, 0, 1);
+		break;
+	case Command::COLOR_RGB:
+		this->buffer << "rgb(" << dec(value[0]) << ',' << dec(value[1]) << ',' << dec(value[2]) << ')';
+		break;
+	case Command::TYPE_COUNT:
+		;
+	}
+	
+	publish(topicId, this->buffer, 1);
+	this->buffer.clear();
+}
+
+
+// Timers
+// ------
+
+int RoomControl::Timer::getFlashSize() const {
+	int size = sizeof(Command) * this->commandCount;
+	for (int i = 0; i < this->commandCount; ++i) {
+		Command const &command = this->u.commands[i];
+		size += command.getFlashSize();
+	}
+	return intptr_t(&((Timer*)nullptr)->u.buffer[size]);
+}
+
+int RoomControl::Timer::getRamSize() const {
+	return intptr_t(&((TimerState*)nullptr)->topicIds[this->commandCount]);
+}
+
+void RoomControl::registerTimer(int index) {
+	auto e = this->timers[index];
+	
+	Timer const *timer = e.flash;
+	TimerState *timerState = e.ram;
+	
+	uint8_t const *data = timer->u.buffer + sizeof(Command) * timer->commandCount;
+	for (int commandIndex = 0; commandIndex < timer->commandCount; ++commandIndex) {
+		Command const &command = timer->u.commands[commandIndex];
+		
+		// get value
+		uint8_t const *value = data;
+		int valueSize = command.getValueSize();
+
+		// get topic
+		String topic(String(data + valueSize, command.topicLength));
+
+		// register topic (so that we can publish on timer event)
+		this->buffer << prefix << '/' << topic << "/cmd";
+		timerState->topicIds[commandIndex] = registerTopic(this->buffer).topicId;
+		this->buffer.clear();
+		
+		data += valueSize + command.topicLength;
+	}
+}
+
+
+// Clock
+// -----
+
+void RoomControl::onSecondElapsed() {
+	updateMenu(0, false);
+	setDisplay(this->bitmap);
+
+	// check for timer event
+	ClockTime now = getClockTime();
+	if (now.getSeconds() == 0) {
+		int minutes = now.getMinutes();
+		int hours = now.getHours();
+		int weekday = now.getWeekday();
+		for (auto e : this->timers) {
+			const Timer *timer = e.flash;
+			const TimerState *timerState = e.ram;
+			
+			ClockTime t = timer->time;
+			if (t.getMinutes() == minutes && t.getHours() == hours && (t.getWeekdays() & (1 << weekday)) != 0) {
+				// timer event
+				uint8_t const *data = timer->u.buffer + sizeof(Command) * timer->commandCount;
+				for (int commandIndex = 0; commandIndex < timer->commandCount; ++commandIndex) {
+					Command const &command = timer->u.commands[commandIndex];
+					
+					// get value
+					uint8_t const *value = data;
+					int valueSize = command.getValueSize();
+
+					// publish value
+					publishValue(timerState->topicIds[commandIndex], command.type, value);
+
+					data += command.topicLength + valueSize;
+				}
+			}
+		}
+	}
 }

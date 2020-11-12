@@ -30,11 +30,16 @@ MqttSnBroker::TopicResult MqttSnBroker::registerTopic(String topicName) {
 		TopicInfo &topic = getTopic(topicId);
 		
 		// check if we need to register the topic at the gateway
-		if (MqttSnClient::isConnected() && topic.gatewayTopicId == 0)
-			result = MqttSnClient::registerTopic(topicName).result;
+		if (MqttSnClient::isConnected() && topic.gatewayTopicId == 0) {
+			MessageResult r = MqttSnClient::registerTopic(topicName);
+			topic.gatewayTopicId = r.msgId;
+			topic.waitForTopicId = true;
+			result = r.result;
+		}
 	} else {
 		result = Result::OUT_OF_MEMORY;
 	}
+std::cout << "registerTopic " << topicName << " " << topicId << std::endl;
 	return {topicId, result};
 }
 
@@ -50,8 +55,9 @@ MqttSnBroker::Result MqttSnBroker::publish(uint16_t topicId, uint8_t const *data
 	sendPublish(topicId, topic, data, length, qos, retain);
 
 	// publish to gateway
-	if (topic->gatewayTopicId != 0)
-		MqttSnClient::publish(topic->gatewayTopicId, data, length, qos, retain);
+	if (topic->gatewayTopicId != 0) {
+		MqttSnClient::publish(topic->gatewayTopicId, data, length, qos, retain, topic->waitForTopicId);
+	}
 
 	return Result::OK;
 }
@@ -75,6 +81,7 @@ MqttSnBroker::TopicResult MqttSnBroker::subscribeTopic(String topicFilter, int8_
 	} else {
 		result = Result::OUT_OF_MEMORY;
 	}
+std::cout << "subscribeTopic " << topicFilter << " " << topicId << std::endl;
 	return {topicId, result};
 }
 
@@ -89,6 +96,7 @@ void MqttSnBroker::onRegistered(uint16_t msgId, String topicName, uint16_t gatew
 	if (topicId != 0) {
 		TopicInfo &topic = getTopic(topicId);
 		topic.gatewayTopicId = gatewayTopicId;
+		topic.waitForTopicId = false;
 	}
 }
 
@@ -103,13 +111,15 @@ void MqttSnBroker::onSubscribed(uint16_t msgId, String topicName, uint16_t gatew
 	}
 }
 
-mqttsn::ReturnCode MqttSnBroker::onPublish(uint16_t topicId, uint8_t const *data, int length, int8_t qos, bool retain) {
+mqttsn::ReturnCode MqttSnBroker::onPublish(uint16_t gatewayTopicId, uint8_t const *data, int length, int8_t qos,
+	bool retain)
+{
 	// check if we are able to forward to our clients
 	if (isBrokerBusy())
 		return mqttsn::ReturnCode::REJECTED_CONGESTED;
 
-	uint16_t localTopicId = findTopicId(topicId);
-	TopicInfo *topic = findTopic(localTopicId);
+	uint16_t topicId = findTopicId(gatewayTopicId);
+	TopicInfo *topic = findTopic(topicId);
 	if (topic == nullptr)
 		return mqttsn::ReturnCode::REJECTED_INVALID_TOPIC_ID;
 
@@ -286,8 +296,10 @@ void MqttSnBroker::onDownReceived(uint16_t clientId, uint8_t const *data, int le
 								sendPublish(topicId, topic, data, length, qos, retain, clientId);
 
 								// publish to gateway
-								if (topic->gatewayTopicId != 0)
-									MqttSnClient::publish(topic->gatewayTopicId, data, length, min(qos, topic->gatewayQos), retain);
+								if (topic->gatewayTopicId != 0) {
+									MqttSnClient::publish(topic->gatewayTopicId, data, length,
+										min(qos, topic->gatewayQos), retain, topic->waitForTopicId);
+								}
 
 								// serialize reply message
 								m.data[5] = uint8_t(mqttsn::ReturnCode::ACCEPTED);
@@ -1002,7 +1014,7 @@ void MqttSnBroker::sendPublish(uint16_t topicId, TopicInfo *topic, uint8_t const
 
 	// publish to local client if it has subscribed to the topic
 	int8_t localQos = topic->getQos(LOCAL_CLIENT_INDEX);
-	if (localQos >= 0)
+	if (localQos >= 0 && length > 0)
 		onPublished(topicId, data, length, min(qos, localQos), retain);
 }
 

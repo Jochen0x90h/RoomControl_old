@@ -21,12 +21,12 @@ Lin::~Lin() {
 }
 
 Array<Lin::Device> Lin::getLinDevices() {
-	return {devices, size(devices)};
+	return {devices, array::size(devices)};
 }
 
 void Lin::linSend(uint32_t deviceId, const uint8_t *data, int length) {
 	assert(length <= sizeof(8));
-	for (int i = 0; i < size(devices); ++i) {
+	for (int i = 0; i < array::size(devices); ++i) {
 		Device const &device = devices[i];
 		
 		if (device.id == deviceId && length >= 1)
@@ -45,7 +45,7 @@ void Lin::doGui(int &id) {
 
 
 	this->sendBusy = false;
-	for (int i = 0; i < size(devices); ++i) {
+	for (int i = 0; i < array::size(devices); ++i) {
 		Device const &device = devices[i];
 		State &state = this->states[i];
 

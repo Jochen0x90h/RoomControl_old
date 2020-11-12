@@ -63,20 +63,20 @@ public:
 
 	StringBuffer &operator <<(char ch) {
 		if (this->index < L)
-			this->buffer[this->index++] = ch;
-		this->buffer[this->index] = 0;
+			this->data[this->index++] = ch;
+		this->data[this->index] = 0;
 		return *this;
 	}
 
 	StringBuffer &operator <<(const String &str) {
 		int l = min(str.length, L - this->index);
 		char const *src = str.begin();
-		char *dst = this->buffer + this->index;
+		char *dst = this->data + this->index;
 		for (int i = 0; i < l; ++i) {
 			dst[i] = src[i];
 		}
 		this->index += l;
-		this->buffer[this->index] = 0;
+		this->data[this->index] = 0;
 		return *this;
 	}
 
@@ -85,11 +85,11 @@ public:
 		uint32_t value = dec.value;
 		if (dec.value < 0) {
 			if (this->index < L)
-				this->buffer[this->index++] = '-';
+				this->data[this->index++] = '-';
 			value = -dec.value;
 		}
-		this->index += toString(value, this->buffer + this->index, L - this->index, dec.digitCount);
-		this->buffer[this->index] = 0;
+		this->index += toString(value, this->data + this->index, L - this->index, dec.digitCount);
+		this->data[this->index] = 0;
 		return *this;
 	}
 
@@ -103,36 +103,60 @@ public:
 		while (end < 32 && bcd.value >> end != 0)
 			end += 4;
 		for (int i = end - 4; i >= 0 && this->index < L; i -= 4) {
-			this->buffer[this->index++] = '0' + ((bcd.value >> i) & 0xf);
+			this->data[this->index++] = '0' + ((bcd.value >> i) & 0xf);
 		}
-		this->buffer[this->index] = 0;
+		this->data[this->index] = 0;
 		return *this;
 	}
 
 	template <typename T>
 	StringBuffer &operator <<(Hex<T> hex) {
-		this->index += hexToString(hex.value, this->buffer + this->index, L - this->index, hex.digitCount);
-		this->buffer[this->index] = 0;
+		this->index += hexToString(hex.value, this->data + this->index, L - this->index, hex.digitCount);
+		this->data[this->index] = 0;
 		return *this;
 	}
 	
 	StringBuffer &operator <<(Flt flt) {
-		this->index += toString(flt.value, this->buffer + this->index, L - this->index, flt.digitCount,
+		this->index += toString(flt.value, this->data + this->index, L - this->index, flt.digitCount,
 			flt.decimalCount);
-		this->buffer[this->index] = 0;
+		this->data[this->index] = 0;
 		return *this;
 	}
 
+	char operator [](int index) const {return this->data[index];}
+	char &operator [](int index) {return this->data[index];}
+
 	operator String() {
-		return {this->buffer, this->index};
+		return {this->data, this->index};
 	}
-	
+	String string() const {
+		return {this->data, this->index};
+	}
+
 	bool empty() {return this->index == 0;}
 	int length() {return this->index;}
 	void setLength(int length) {this->index = length;}
 
+	int indexOf(char ch, int startIndex = 0) {
+		for (int i = startIndex; i < this->index; ++i) {
+			if (this->data[i] == ch)
+				return i;
+		}
+		return -1;
+	}
+
+	int lastIndexOf(char ch) {
+		int i = this->index;
+		while (i > 0) {
+			--i;
+			if (this->data[i] == ch)
+				return i;
+		}
+		return -1;
+	}
+
 protected:
 
-	char buffer[L + 1];
+	char data[L + 1];
 	int index = 0;
 };

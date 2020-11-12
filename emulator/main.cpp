@@ -35,6 +35,11 @@ static void mouseCallback(GLFWwindow* window, int button, int action, int mods) 
     }*/
 }
 
+ClockTime timerData[] = {
+	makeClockTime(0, 10, 00),
+	makeClockTime(0, 22, 41)
+};
+
 /*
 Event eventData[] = {
 	{0xfef3ac9b, 0x10, {2, {{0, Device::ON}, {0, Device::OFF}}}}, // bottom left
@@ -71,6 +76,7 @@ Device deviceData[] = {
  * Linux: /dev/ttyUSB0 (add yourself to the dialout group: sudo usermod -a -G dialout $USER)
  */
 int main(int argc, const char **argv) {
+
 /*	if (argc <= 1) {
 		std::cout << "usage: emulator <device>" << std::endl;
 	#if __APPLE__
@@ -138,6 +144,19 @@ int main(int argc, const char **argv) {
 
 	// the room control application
 	RoomControl roomControl;
+
+	// add test data
+	for (ClockTime time : timerData) {
+		RoomControl::Timer timer = {};
+		timer.time = time;
+		timer.commandCount = 1;
+		timer.u.commands[0].type = RoomControl::Command::ROCKER;
+		timer.u.commands[0].topicLength = 15;
+		uint8_t *data = timer.u.buffer + sizeof(RoomControl::Command);
+		data[0] = 1;
+		memcpy(data + 1, "room/00000001/x", 15);
+		roomControl.timers.write(roomControl.timers.size(), &timer);
+	}
 
 	// main loop
 	int frameCount = 0;

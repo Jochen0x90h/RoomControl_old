@@ -7,8 +7,8 @@
  */
 template <typename T>
 struct Array {
-	const T *data;
-	int length;
+	T const *const data;
+	int const length;
 		
 	constexpr Array() : data(nullptr), length(0) {}
 
@@ -19,7 +19,10 @@ struct Array {
 
 	bool empty() {return this->length <= 0;}
 
-	constexpr T const &operator [](int index) const {return this->data[index];}
+	constexpr T const &operator [](int index) const {
+		assert(index >= 0 && index < this->length);
+		return this->data[index];
+	}
 
 	const T *begin() const {return this->data;}
 	const T *end() const {return this->data + this->length;}

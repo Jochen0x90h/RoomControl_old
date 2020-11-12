@@ -255,17 +255,19 @@ public:
 
 	/**
 	 * Publish a message on a topic
-	 * @param topicId id obtained using registerTopic()
+	 * @param topicId topic (or message) id obtained using registerTopic() and onRegisterd()
 	 * @param data payload data
 	 * @param length payload data length
 	 * @param qos quality of service level: 0, 1, 2 or -1. Must not be higher than granted qos for the topic
 	 * @param retain retain message and deliver to new subscribers
+	 * @param waitForTopicId true if we publish using the message id of registerTopic() before onRegistered() arrived
 	 * @return result result code
 	 */
-	Result publish(uint16_t topicId, uint8_t const *data, int length, int8_t qos, bool retain = false);
+	Result publish(uint16_t topicId, uint8_t const *data, int length, int8_t qos, bool retain = false,
+		bool waitForTopicId = false);
 
-	Result publish(uint16_t topicId, String data, int8_t qos, bool retain = false) {
-		return publish(topicId, reinterpret_cast<uint8_t const*>(data.data), data.length, qos, retain);
+	Result publish(uint16_t topicId, String data, int8_t qos, bool retain = false, bool waitForTopicId = false) {
+		return publish(topicId, reinterpret_cast<uint8_t const*>(data.data), data.length, qos, retain, waitForTopicId);
 	}
 
 	/**
@@ -295,7 +297,10 @@ protected:
 	// Client has found a gateway
 	//virtual void onGatewayFound(Udp6Endpoint const &sender, uint8_t gatewayId) = 0;
 
-	// Client has connected successfully
+	/**
+	 * Client has connected to the gateway. Now subscriptions can be made using subscribeTopic().
+	 * When using the broker, all subscriptions have to be renewed
+	 */
 	virtual void onConnected() = 0;
 	
 	// Client was disconnected by the gateway
@@ -361,7 +366,10 @@ private:
 		uint16_t offset;
 
 		// length of message
-		uint16_t length;
+		uint8_t length;
+		
+		// true for PUBLISH messages that wait for the topic id to be registered
+		bool waitForTopicId;
 
 		// message id
 		uint16_t msgId;
@@ -379,13 +387,16 @@ private:
 	uint16_t getNextMsgId() {return this->nextMsgId = this->nextMsgId == 0xffff ? 1 : this->nextMsgId + 1;}
 
 	// allocate a send message with given length or 0 if no space available
-	Message addSendMessage(int length, uint16_t msgId = 0);
+	Message addSendMessage(int length, uint16_t msgId = 0, bool waitForTopicId = false);
 
 	// send the current message and make next message current or try to garbage collect it if msgId is zero
 	void sendCurrentMessage();
 	
 	// resend oldest message that is still in the queue
 	void resend();
+
+	// set topic id of PUBLISH messages that have waitForTopicId = true
+	void setTopicId(uint16_t msgId, uint16_t topicId);
 
 	// remove sent message with given id from message queue
 	Message removeSentMessage(uint16_t msgId, mqttsn::MessageType type);

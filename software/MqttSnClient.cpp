@@ -140,7 +140,9 @@ MqttSnClient::MessageResult MqttSnClient::registerTopic(String topicName) {
 	return {Result::OK, msgId};
 }
 
-MqttSnClient::Result MqttSnClient::publish(uint16_t topicId, const uint8_t *data, int length, int8_t qos, bool retain) {
+MqttSnClient::Result MqttSnClient::publish(uint16_t topicId, const uint8_t *data, int length, int8_t qos, bool retain,
+	bool waitForTopicId)
+{
     if (topicId == 0 || length > MAX_MESSAGE_LENGTH - 6)
 		return Result::INVALID_PARAMETER;
     if (!isConnected())
@@ -354,22 +356,23 @@ void MqttSnClient::onUpReceived(uint8_t const *data, int length) {
 				uint16_t msgId = mqttsn::getUShort(data + 3);
 				mqttsn::ReturnCode returnCode = mqttsn::ReturnCode(data[5]);
 
-				// remove REGISTER message, data stays valid until methods are called on this or return to event loop
-				Message sm = removeSentMessage(msgId, mqttsn::REGISTER);
-				if (sm.data != nullptr) {
-					switch (returnCode) {
-					case mqttsn::ReturnCode::ACCEPTED:
-						{
-							String topicName(sm.data + 5, sm.length - 5);
-							onRegistered(msgId, topicName, topicId);
-						}
-						break;
-					case mqttsn::ReturnCode::REJECTED_CONGESTED:
-						onError(ERROR_CONGESTED, messageType);
-						break;
-					default:
-						;
+				if (returnCode == mqttsn::ReturnCode::ACCEPTED) {
+					// set topic id to publish messages that already published on this topic
+					setTopicId(msgId, topicId);
+
+					// remove REGISTER message, data stays valid until methods are called on this or return to event loop
+					Message sm = removeSentMessage(msgId, mqttsn::REGISTER);
+					if (sm.data != nullptr) {
+						String topicName(sm.data + 5, sm.length - 5);
+						onRegistered(msgId, topicName, topicId);
 					}
+				} else {
+					// report error
+					onError(ERROR_CONGESTED, messageType);
+
+					// try again
+					if (!(this->resendPending = isUpSendBusy()))
+						resend();
 				}
 			}
 			break;
@@ -424,17 +427,16 @@ void MqttSnClient::onUpReceived(uint8_t const *data, int length) {
 				uint16_t msgId = mqttsn::getUShort(data + 3);
 				mqttsn::ReturnCode returnCode = mqttsn::ReturnCode(data[5]);
 				
-				// remove PUBLISH message from queue
-				if (removeSentMessage(msgId, mqttsn::PUBLISH).data != nullptr) {
-					switch (returnCode) {
-					case mqttsn::ReturnCode::ACCEPTED:
-						break;
-					case mqttsn::ReturnCode::REJECTED_CONGESTED:
-						onError(ERROR_CONGESTED, messageType);
-						break;
-					default:
-						;
-					}
+				if (returnCode == mqttsn::ReturnCode::ACCEPTED) {
+					// remove PUBLISH message from queue
+					removeSentMessage(msgId, mqttsn::PUBLISH);
+				} else {
+					// report error
+					onError(ERROR_CONGESTED, messageType);
+
+					// try again
+					if (!(this->resendPending = isUpSendBusy()))
+						resend();
 				}
 			}
 			break;
@@ -545,7 +547,7 @@ void MqttSnClient::onSystemTimeout1(SystemTime time) {
 // internal
 // --------
 
-MqttSnClient::Message MqttSnClient::addSendMessage(int length, uint16_t msgId) {
+MqttSnClient::Message MqttSnClient::addSendMessage(int length, uint16_t msgId, bool waitForTopicId) {
 	if (this->busy)
 		return {};
 
@@ -586,6 +588,7 @@ MqttSnClient::Message MqttSnClient::addSendMessage(int length, uint16_t msgId) {
 	
 	// set message id
 	info.msgId = msgId;
+	info.waitForTopicId = waitForTopicId;
 
 	// set busy flag if no new message will fit
 	this->busy = this->sendMessagesHead >= MAX_SEND_COUNT || this->sendBufferFill + MAX_MESSAGE_LENGTH > SEND_BUFFER_SIZE;
@@ -626,6 +629,8 @@ void MqttSnClient::sendCurrentMessage() {
 }
 
 void MqttSnClient::resend() {
+	// todo: disconnect if maximum resend count exceeded
+
 	// get message
 	MessageInfo &info = this->sendMessages[this->sendMessagesTail];
 	
@@ -640,27 +645,23 @@ void MqttSnClient::resend() {
 	setSystemTimeout1(now + RETRANSMISSION_INTERVAL);
 }
 
-/*
-static uint16_t getMsgId(uint8_t const *data) {
-	switch (mqttsn::MessageType(data[1])) {
-	case mqttsn::CONNECT:
-		return 1;
-	case mqttsn::REGISTER:
-		return mqttsn::getUShort(data + 4);
-	case mqttsn::PUBLISH:
-		{
-			int8_t qos = mqttsn::getQos(data[2]);
-			return qos > 0 ? mqttsn::getUShort(data + 5) : 0;
+void MqttSnClient::setTopicId(uint16_t msgId, uint16_t topicId) {
+	// + 1 because we can skip tail which must be the REGACK message
+	for (int i = this->sendMessagesTail + 1; i < this->sendMessagesCurrent; ++i) {
+		MessageInfo &info = this->sendMessages[i];
+		uint8_t *data = this->sendBuffer + info.offset;
+		
+		// check if the message waits for the topic id and and currently has the msgId of the REGISTER message
+		// in the topicId field
+		if (info.waitForTopicId && mqttsn::getUShort(data + 2) == msgId) {
+			info.waitForTopicId = false;
+			
+			// set topicId in message
+			mqttsn::setUShort(data + 2, topicId);
 		}
-	case mqttsn::SUBSCRIBE:
-		return mqttsn::getUShort(data + 3);
-	case mqttsn::UNSUBSCRIBE:
-		return mqttsn::getUShort(data + 3);
-	default:
-		return 0;
 	}
 }
-*/
+
 MqttSnClient::Message MqttSnClient::removeSentMessage(uint16_t msgId, mqttsn::MessageType type) {
 	Message m = {};
 	int tail = this->sendMessagesTail;
@@ -685,7 +686,7 @@ MqttSnClient::Message MqttSnClient::removeSentMessage(uint16_t msgId, mqttsn::Me
 	for (int i = tail; i < this->sendMessagesCurrent; ++i) {
 		MessageInfo &info = this->sendMessages[i];
 	
-		if (info.msgId == 0)
+		if (info.msgId == 0 || info.waitForTopicId)
 			++tail;
 		else
 			break;

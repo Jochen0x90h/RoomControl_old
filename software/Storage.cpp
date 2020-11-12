@@ -127,28 +127,58 @@ void Storage::ArrayData::write(int op, int index, int value) {
 	}
 }
 */
-void Storage::ArrayData::write(int index, void const *flashElement, void const* ramElement) {
+
+bool Storage::ArrayData::hasSpace(void const *flashElement) {
+	Storage *storage = this->storage;
+	if (storage->elementCount >= MAX_ELEMENT_COUNT)
+		return false;
+	int flashSize = storage->flashElementsSize + storage->elementCount * 4
+		+ this->flashSize(flashElement);
+	if (flashSize > storage->pageCount * (FLASH_PAGE_SIZE * 2 / 3))
+		return false;
+	int ramSize = &storage->ram[RAM_SIZE] - storage->ramElements[storage->elementCount]
+		+ this->ramSize(flashElement);
+	if (ramSize > RAM_SIZE)
+		return false;
+	return true;
+}
+
+bool Storage::ArrayData::write(int index, void const *flashElement, void const* ramElement) {
 	Storage *storage = this->storage;
 
 	// element sizes
 	int flashElementSize = this->flashSize(flashElement);
-	int alignedFlashHeaderSize = flashAlign(sizeof(FlashHeader));
-	int alignedFlashElementSize = flashAlign(flashElementSize);
-	storage->flashElementsSize += flashElementSize;
+	int flashSizeChange = flashElementSize;
 
 	int ramElementSize = this->ramSize(flashElement);
-	int ramSizeChange = ramAlign(ramElementSize);
+	int oldRamElementSize = 0;
 
-	// automatically enlarge by one if write at end
-	if (index == this->count) {
-		enlarge(1);
-	} else {
+	// automatically enlarge array by one element if write at end
+	if (index != this->count) {
 		// subtract size of old element
-		storage->flashElementsSize -= this->flashSize(this->flashElements[index]);
-		ramSizeChange -= ramAlign(this->ramSize(this->flashElements[index]));
+		flashSizeChange -= this->flashSize(this->flashElements[index]);
+		oldRamElementSize = this->ramSize(this->flashElements[index]);
 	}
+	int ramSizeChange = ramAlign(ramElementSize) - ramAlign(oldRamElementSize);
+
+	// check if new element will fit
+	int flashSize = storage->flashElementsSize + storage->elementCount * 4 + flashSizeChange;
+	if (flashSize > storage->pageCount * (FLASH_PAGE_SIZE * 2 / 3))
+		return false;
+	int ramSize = storage->ramElements[storage->elementCount] - storage->ram + ramSizeChange;
+	if (ramSize > RAM_SIZE)
+		return false;
+
+	if (index == this->count) {
+		if (storage->elementCount >= MAX_ELEMENT_COUNT)
+			return false;
+		enlarge(1);
+	}
+	storage->flashElementsSize += flashSizeChange;
 
 	// check if there is enough flash space
+	int alignedFlashHeaderSize = flashAlign(sizeof(FlashHeader));
+	int alignedFlashElementSize = flashAlign(flashElementSize);
 	if (storage->it + alignedFlashHeaderSize + alignedFlashElementSize <= storage->end) {
 		// write header to flash
 		FlashHeader flashHeader = {this->index, uint8_t(index), uint8_t(1), Op::OVERWRITE};
@@ -180,10 +210,13 @@ void Storage::ArrayData::write(int index, void const *flashElement, void const* 
 			dst[i] = src[i];
 		}
 	} else {
-		for (int i = 0; i < ramElementSize; ++i) {
+		for (int i = oldRamElementSize; i < ramElementSize; ++i) {
 			dst[i] = 0;
 		}
 	}
+	
+	// todo: report out of memory
+	return true;
 }
 
 void Storage::ArrayData::erase(int index) {
@@ -381,7 +414,7 @@ void Storage::init() {
 	this->it = it;
 	
 	// calculate accumulated size of all flash elements and allocate ram
-	int flashElementsSize = 0;
+	this->flashElementsSize = 0;
 	uint32_t **ramElements = this->ramElements;
 	uint32_t *ram = this->ram;
 	ArrayData *arrayData = this->first;
@@ -390,7 +423,7 @@ void Storage::init() {
 		
 		// iterate over array elements
 		for (int i = 0; i < arrayData->count; ++i) {
-			flashElementsSize += arrayData->flashSize(arrayData->flashElements[i]);
+			this->flashElementsSize += arrayData->flashSize(arrayData->flashElements[i]);
 		
 			ramElements[i] = ram;
 			ram += ramAlign(arrayData->ramSize(arrayData->flashElements[i]));
@@ -398,7 +431,6 @@ void Storage::init() {
 		ramElements += arrayData->count;
 		arrayData = arrayData->next;
 	};
-	this->flashElementsSize = flashElementsSize;
 	
 	// write "end" pointer behint last ram element pointer
 	ramElements[0] = ram;
@@ -450,7 +482,7 @@ void Storage::switchFlashRegions() {
 			
 			// update element count and accumulated size
 			++this->elementCount;
-			this->flashElementsSize = elementSize;
+			this->flashElementsSize += elementSize;
 		}
 
 		// next array

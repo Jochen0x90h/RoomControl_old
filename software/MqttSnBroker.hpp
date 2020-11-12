@@ -88,7 +88,12 @@ protected:
 // --------------
 
 	/**
-	 * A message was published on a topic
+	 * A message was published on a topic. Does not get called for messages with zero length
+	 * @param topicId id of topic
+	 * @param data message data
+	 * @param length message length, at least 1
+	 * @param qos quality of service
+	 * @param retain true if this is a retained message
 	 * @return return code
 	 */
 	virtual void onPublished(uint16_t topicId, uint8_t const *data, int length, int8_t qos, bool retain) = 0;
@@ -150,6 +155,8 @@ private:
 
 		// topic id at gateway (broker at other side of up-link)
 		uint16_t gatewayTopicId;
+		
+		bool waitForTopicId;
 		
 		// quality of service level granted by gateway
 		int8_t gatewayQos;
@@ -261,7 +268,6 @@ private:
 	
 	// topics
 	int topicCount = 0;
-	uint16_t nextTopicIndex = 0;
 	std::map<std::string, uint16_t> topicNames;
 	TopicInfo topics[MAX_TOPIC_COUNT];
 	

@@ -11,7 +11,7 @@ Clock::Clock()
 
 Clock::~Clock() {}
 
-Clock::ClockTime Clock::getClockTime() {
+ClockTime Clock::getClockTime() {
 	auto time = boost::date_time::second_clock<boost::posix_time::ptime>::local_time();
 	auto t = time.time_of_day();
 	int seconds = t.seconds();
@@ -19,7 +19,7 @@ Clock::ClockTime Clock::getClockTime() {
 	int hours = t.hours();
 	auto d = time.date();
 	int weekDay = (d.day_of_week() + 6) % 7;
-	return ClockTime(weekDay, hours, minutes, seconds);
+	return makeClockTime(weekDay, hours, minutes, seconds);
 }
 
 void Clock::setClockTimeout(boost::posix_time::ptime utc) {

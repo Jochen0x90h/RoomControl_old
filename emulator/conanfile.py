@@ -1,8 +1,13 @@
 from conans import ConanFile, CMake, tools
 import os
 
+# linux:
 # install conan: pip3 install --user conan
 # upgrade conan: pip3 install --upgrade --user conan
+
+# macos:
+# install conan: brew install conan
+
 # create default profile: conan profile new default --detect
 # create debug profile: copy ~/.conan/profiles/default to Debug, replace Release by Debug
 

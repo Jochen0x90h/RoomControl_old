@@ -2,6 +2,7 @@
 
 #include "global.hpp"
 #include <boost/bimap.hpp>
+#include "util.hpp"
 
 
 /**

@@ -12,6 +12,7 @@ class Storage {
 public:
 
 	static constexpr int MAX_ELEMENT_COUNT = 256;
+	static constexpr int RAM_SIZE = 16384;
 
 	/**
 	 * Constructor
@@ -101,7 +102,8 @@ protected:
 
 		void enlarge(int count);
 		void shrink(int count);
-		void write(int index, void const *flashElement, void const *ramElement);
+		bool hasSpace(void const *flashElement);
+		bool write(int index, void const *flashElement, void const *ramElement);
 		void erase(int index);
 		void move(int oldIndex, int newIndex);
 	};
@@ -145,16 +147,31 @@ public:
 			return {f, r};
 		}
 
-		void write(int index, FLASH const *flashElement) {
-			assert(index >= 0 && index <= this->data.count);
-			this->data.write(index, flashElement, nullptr);
+		/**
+		 * Returns true if there is enough space for a new element
+		 * @param flashElement element to test
+		 * @return true if space is available
+		 */
+		bool hasSpace(FLASH const *flashElement) {
+			return this->data.hasSpace(flashElement);
 		}
 
-		void write(int index, FLASH const *flashElement, RAM *ramElement) {
+		/**
+		 * Overwrite or append an element at the given index.
+		 * The ram element is only resized and preserved if it is nullptr
+		 * @param index of element, must be in the range [0, size()]
+		 * @param flashElement element to store in flash
+		 * @param ramElement element to store in ram, can be nullptr
+		 * @return true if successful, false if out of memory
+		 */
+		bool write(int index, FLASH const *flashElement, RAM *ramElement = nullptr) {
 			assert(index >= 0 && index <= this->data.count);
-			this->data.write(index, flashElement, ramElement);
+			return this->data.write(index, flashElement, ramElement);
 		}
 
+		/**
+		 * Erase the element at the given index
+		 */
 		void erase(int index) {
 			assert(index >= 0 && index < this->data.count);
 			this->data.erase(index);
@@ -218,13 +235,13 @@ protected:
 	// get flash element size
 	template <typename F>
 	static int flashSize(const void *flashElement) {
-		return reinterpret_cast<const F*>(flashElement)->flashSize();
+		return reinterpret_cast<const F*>(flashElement)->getFlashSize();
 	}
 
    // get ram element size
    template <typename F>
    static int ramSize(const void *flashElement) {
-	   return reinterpret_cast<const F*>(flashElement)->ramSize();
+	   return reinterpret_cast<const F*>(flashElement)->getRamSize();
    }
 
 	// add array to be managed by this storage
@@ -277,13 +294,13 @@ protected:
 	void const *flashElements[MAX_ELEMENT_COUNT];
 	
 	
-	// accumulated size of all elements in 4 byte units
+	// accumulated size of all flash elements bytes
 	int flashElementsSize = 0;
 
 
 	// space for array elements of all arrays followed by an "end"-pointer
 	uint32_t *ramElements[MAX_ELEMENT_COUNT + 1];
 
-	uint32_t ram[16384];
-
+	// space for ram elements
+	uint32_t ram[RAM_SIZE];
 };
