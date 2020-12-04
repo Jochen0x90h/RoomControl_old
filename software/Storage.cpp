@@ -516,11 +516,14 @@ void Storage::ramInsert(uint32_t **ramElement, int sizeChange) {
 		
 	uint32_t **e = this->ramElements + this->elementCount;
 	
+	// move ram contents
 	if (sizeChange > 0) {
 		uint32_t *src = *e;
 		uint32_t *dst = src + sizeChange;
 		uint32_t *begin = *ramElement;
-		for (; src != begin; --src, --dst) {
+		while (src != begin) {
+			--src;
+			--dst;
 			*dst = *src;
 		}
 	} else {

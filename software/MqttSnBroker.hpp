@@ -75,12 +75,25 @@ public:
 	}
 
 	/**
-	 * Subscribe to a topic at this broker and gateway. Subscribing at gateway succeeds if isBusy() returns false before calling subscribeTopic()
+	 * Subscribe to a topic. Multiple subscriptions to the same topic are reference counted
 	 * @param topic topic filter (path that may contain wildcards)
 	 * @param qos quality of service of the subscription, qos of a published message is minimum of publishing and subscription
 	 * @return topic id and result of registering at gateway
 	 */
-	TopicResult subscribeTopic(String topicFilter, int8_t qos = 1);
+	TopicResult subscribeTopic(String topicFilter, int8_t qos);
+
+	/**
+	 * Increment the reference counter of an existing subscription
+	 * @param topicId topic id of existing subscription. Nothing happens if topicId is zero
+	 */
+	void addSubscriptionReference(uint16_t topicId) {if (topicId != 0) ++getTopic(topicId).subscribeCount;}
+
+	/**
+	 * Unsubscribe from a topic.
+	 * @param topicFilter topic filter (path that may contain wildcards)
+	 * @return result containing success status and message id
+	 */
+	Result unsubscribeTopic(String topicFilter);
 
 protected:
 
@@ -156,11 +169,11 @@ private:
 		// topic id at gateway (broker at other side of up-link)
 		uint16_t gatewayTopicId;
 		
-		bool waitForTopicId;
-		
 		// quality of service level granted by gateway
 		int8_t gatewayQos;
 		
+		// reference counter for number of subscriptions
+		uint8_t subscribeCount;
 		
 		// return true if at least one remote client has subscribed to the topic
 		bool isRemoteSubscribed();
@@ -217,7 +230,7 @@ private:
 	 * @param name topic name (path without wildcards)
 	 * @return 0 if no new topic could be allocated
 	 */
-	uint16_t getTopicId(String name);
+	uint16_t getTopicId(String name, bool add = true);
 
 	/**
 	 * Get topic by valid id

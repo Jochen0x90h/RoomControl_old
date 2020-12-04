@@ -15,24 +15,23 @@ struct IsArray : False {};
 template <typename T, int N>
 struct IsArray<T[N]> : True {};
 
-template<int N>
-int getLength(char const (&str)[N], True) {
-	int length = 0;
-	while (length < N && str[length] != 0)
-		++length;
-	return length;
-}
-
-inline int getLength(char const *str, False) {
+constexpr int getLength(char const *str, False) {
 	int length = 0;
 	while (str[length] != 0)
 		++length;
 	return length;
 }
 
+template<int N>
+constexpr int getLength(char const (&str)[N], True) {
+	int length = 0;
+	while (length < N && str[length] != 0)
+		++length;
+	return length;
+}
 
 template<typename T>
-int length(T &str) {
+constexpr int length(T &str) {
 	return getLength(str, IsArray<T>());
 }
 
@@ -57,7 +56,7 @@ struct String {
 	{}
 
 	template<typename T>
-	String(T &str)
+	constexpr String(T &str)
 		: data(str), length(getLength(str, IsArray<T>()))
 	{}
 
@@ -155,8 +154,11 @@ inline bool operator <(String a, String b) {
 	return a.length < b.length;
 }
 
+
 /**
  * Assign a string to a fixed size c-string
+ * @param str fixed size c-string of type char[N]
+ * @param s source string
  */
 template <int N>
 inline void assign(char (&str)[N], String s) {

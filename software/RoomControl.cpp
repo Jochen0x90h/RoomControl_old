@@ -4,18 +4,19 @@
 // font
 #include "tahoma_8pt.hpp"
 
-static char const *prefix = "rc";
-static char const weekdays[7][4] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
-static char const weekdaysShort[7][2] = {"M", "T", "W", "T", "F", "S", "S"};
-static char const *buttonStates[] = {"release", "press"};
-static char const *rockerStates[] = {"release", "up", "down", ""};
-static char const *binaryStates[] = {"off", "on"};
+constexpr String weekdays[7] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+constexpr String weekdaysShort[7] = {"M", "T", "W", "T", "F", "S", "S"};
+constexpr String buttonStates[] = {"release", "press"};
+constexpr String rockerStates[] = {"release", "up", "down", ""};
+constexpr String binaryStates[] = {"off", "on"};
 
-static uint8_t const offOn[2] = {'0', '1'};
+constexpr uint8_t offOn[2] = {'0', '1'};
+
+constexpr int8_t QOS = 1;
 
 
 RoomControl::RoomControl()
-	: storage(0, FLASH_PAGE_COUNT, room, localDevices, timers)
+	: storage(0, FLASH_PAGE_COUNT, room, localDevices, routes, timers)
 {
 	if (this->room.size() == 0) {
 		assign(this->temp.room.name, "room");
@@ -92,7 +93,7 @@ void RoomControl::onPublished(uint16_t topicId, uint8_t const *data, int length,
 	// check for house command
 	if (topicId == roomState.houseTopicId && message == "?") {
 		// publish room name
-		publish(roomState.houseTopicId, this->room[0].flash->name, 1);
+		publish(roomState.houseTopicId, this->room[0].flash->name, QOS);
 		return;
 	}
 
@@ -101,20 +102,19 @@ void RoomControl::onPublished(uint16_t topicId, uint8_t const *data, int length,
 		// publish device names
 		for (int i = 0; i < this->localDevices.size(); ++i) {
 			LocalDeviceElement e = this->localDevices[i];
-			publish(roomState.roomTopicId, e.flash->getName(), 1);
+			publish(roomState.roomTopicId, e.flash->getName(), QOS);
 		}
 		return;
 	}
 
-	//if (retain) {
-		for (Forward forward : forwards) {
-			if (topicId == forward.srcId) {
-				std::cout << "forward " << topicId << " -> " << forward.dstId << std::endl;
-				publish(forward.dstId, data, length, qos);
-			}
+	// check for routing
+	for (auto e : this->routes) {
+		RouteState const &routeState = *e.ram;
+		if (topicId == routeState.srcTopicId) {
+			std::cout << "route " << topicId << " -> " << routeState.dstTopicId << std::endl;
+			publish(routeState.dstTopicId, data, length, qos);
 		}
-	//}
-
+	}
 
 	SystemTime time = getSystemTime();
 
@@ -137,32 +137,32 @@ void RoomControl::onPublished(uint16_t topicId, uint8_t const *data, int length,
 						Switch2State::Switches &ss = state.s[i];
 						uint8_t s = flags & 3;
 						if (s != 0) {
-							this->buffer << "ab"[i];
+							StringBuffer<8> b;
+							b = "ab"[i];
 							if (s == 2)
-								this->buffer << '0';
-							this->buffer << " s"; // only state
-							publish(state.deviceTopicId, this->buffer, 1);
+								b += '0';
+							b += " s"; // only state
+							publish(state.deviceTopicId, b, QOS);
 							if (s == 2) {
-								this->buffer[1] = '1';
-								publish(state.deviceTopicId, this->buffer, 1);
+								b[1] = '1';
+								publish(state.deviceTopicId, b, QOS);
 							}
-							this->buffer.clear();
 						}
 
 						// relays
 						Switch2State::Relays &sr = state.r[i];
 						uint8_t r = (flags >> 4) & 3;
 						if (r != 0) {
-							this->buffer << "xy"[i];
+							StringBuffer<8> b;
+							b = "xy"[i];
 							if (r == 2)
-								this->buffer << '0';
-							this->buffer << " c"; // command and state
-							publish(state.deviceTopicId, this->buffer, 1);
+								b += '0';
+							b += " c"; // command and state
+							publish(state.deviceTopicId, b, QOS);
 							if (r == 2) {
-								this->buffer[1] = '1';
-								publish(state.deviceTopicId, this->buffer, 1);
+								b[1] = '1';
+								publish(state.deviceTopicId, b, QOS);
 							}
-							this->buffer.clear();
 						}
 					}
 					return;
@@ -226,11 +226,11 @@ void RoomControl::onPublished(uint16_t topicId, uint8_t const *data, int length,
 											state.relays &= ~(bit1 | bit2);
 										
 											// publish current blind position
-											int pos = (sr.duration * 100 + dr.duration1 / 2) / dr.duration1;
+											//int pos = (sr.duration * 100 + dr.duration1 / 2) / dr.duration1;
+											float pos = sr.duration / dr.duration1;
 											//std::cout << "pos " << pos << std::endl;
-											this->buffer << pos;
-											publish(sr.stateId1, this->buffer, 1, true);
-											this->buffer.clear();
+											StringBuffer<8> b = flt(pos, 0, 3);
+											publish(sr.stateId1, b, QOS, true);
 										}
 									} else {
 										// currently stopped
@@ -304,7 +304,7 @@ void RoomControl::onPublished(uint16_t topicId, uint8_t const *data, int length,
 
 									// publish current switch state if it has changed
 									if ((state.relays ^ relays) & bit1)
-										publish(sr.stateId1, &offOn[int(on)], 1, 1, true);
+										publish(sr.stateId1, &offOn[int(on)], 1, QOS, true);
 								}
 							} else {
 								// relay 2
@@ -342,7 +342,7 @@ void RoomControl::onPublished(uint16_t topicId, uint8_t const *data, int length,
 
 									// publish current switch state if it has changed
 									if ((state.relays ^ relays) & bit2)
-										publish(sr.stateId2, &offOn[int(on)], 1, 1, true);
+										publish(sr.stateId2, &offOn[int(on)], 1, QOS, true);
 								}
 							}
 						}
@@ -386,8 +386,8 @@ void RoomControl::onLinReady() {
 			this->temp.linDevice = linDevice;
 
 			// initialize name with hex id
-			this->buffer << hex(linDevice.id);
-			this->temp.localDevice.setName(this->buffer);
+			StringBuffer<8> b = hex(linDevice.id);
+			this->temp.localDevice.setName(b);
 			this->buffer.clear();
 
 this->temp.switch2Device.r[0].duration1 = 6500ms;
@@ -429,7 +429,7 @@ void RoomControl::onLinReceived(uint32_t deviceId, uint8_t const *data, int leng
 
 							// check if state has changed
 							if (change & 3) {
-								publish(ss.stateId1, &commands[switches & 3], 1, 1, true);
+								publish(ss.stateId1, &commands[switches & 3], 1, QOS, true);
 							}
 						} else if (s != 0) {
 							// individual switches
@@ -437,10 +437,10 @@ void RoomControl::onLinReceived(uint32_t deviceId, uint8_t const *data, int leng
 
 							// check if state has changed
 							if (change & 1) {
-								publish(ss.stateId1, &commands[switches & 1], 1, 1, true);
+								publish(ss.stateId1, &commands[switches & 1], 1, QOS, true);
 							}
 							if (change & 2) {
-								publish(ss.stateId2, &commands[(switches >> 1) & 1], 1, 1, true);
+								publish(ss.stateId2, &commands[(switches >> 1) & 1], 1, QOS, true);
 							}
 						}
 					}
@@ -518,11 +518,11 @@ void RoomControl::updateMenu(int delta, bool activated) {
 			ClockTime time = getClockTime();
 						
 			// display weekday and clock time
-			this->buffer << weekdays[time.getWeekday()] << "  "
-				<< dec(time.getHours()) << ':'
-				<< dec(time.getMinutes(), 2) << ':'
-				<< dec(time.getSeconds(), 2);
-			bitmap.drawText(20, 10, tahoma_8pt, this->buffer, 1);
+			StringBuffer<16> b = weekdays[time.getWeekday()] + "  "
+				+ dec(time.getHours()) + ':'
+				+ dec(time.getMinutes(), 2) + ':'
+				+ dec(time.getSeconds(), 2);
+			bitmap.drawText(20, 10, tahoma_8pt, b, 1);
 /*
 			// update target temperature
 			int targetTemperature = this->targetTemperature = clamp(this->targetTemperature + delta, 10 << 1, 30 << 1);
@@ -548,10 +548,10 @@ void RoomControl::updateMenu(int delta, bool activated) {
 
 		if (entry("Local Devices"))
 			push(LOCAL_DEVICES);
+		if (entry("Routes"))
+			push(ROUTES);
 		if (entry("Timers"))
 			push(TIMERS);
-		if (entry("Connections"))
-			push(CONNECTIONS);
 		if (entry("Exit")) {
 			this->state = IDLE;
 		}
@@ -564,16 +564,16 @@ void RoomControl::updateMenu(int delta, bool activated) {
 			for (int i = 0; i < deviceCount; ++i) {
 				LocalDeviceElement e = this->localDevices[i];
 				LocalDevice const &device = *e.flash;
-				this->buffer << device.getName() << ": ";
+				StringBuffer<24> b = device.getName() + ": ";
 				switch (device.type) {
 				case Lin::Device::SWITCH2:
-					this->buffer << "Switch";
+					this->buffer += "Switch";
 					break;
 				}
 				if (entry(this->buffer)) {
 					// edit device
 					this->temp.localDevice = device;
-					this->tempState = e.ram;
+					this->tempState.localDevice = *e.ram; // todo polymorphic assignment 
 					push(EDIT_LOCAL_DEVICE);
 				}
 				/*DeviceState &deviceState = this->deviceStates[i];
@@ -614,7 +614,7 @@ void RoomControl::updateMenu(int delta, bool activated) {
 		switch (this->temp.localDevice.type) {
 		case Lin::Device::SWITCH2:
 			{
-				Switch2State *state = reinterpret_cast<Switch2State *>(this->tempState);
+				//Switch2State *state = reinterpret_cast<Switch2State *>(this->tempState);
 				line();
 				entry("Switch A");
 				entry("Type: Two Buttons");
@@ -641,41 +641,135 @@ void RoomControl::updateMenu(int delta, bool activated) {
 			pop();
 
 		break;
+	case ROUTES:
+		menu(delta, activated);
+		{
+			// list routes
+			for (auto e : this->routes) {
+				Route const &route = *e.flash;
+				String srcTopic = route.getSrcTopic();
+				String dstTopic = route.getDstTopic();
+				if (entry(srcTopic)) {
+					// edit route
+					copy(this->temp.route, this->tempState.route, route, *e.ram);
+					push(EDIT_ROUTE);
+				}
+				//label(dstTopic);
+				//line();
+			}
+			
+			// add route
+			if (entry("Add Route")) {
+				// check if list of routes is full
+				if (this->routes.size() < MAX_ROUTE_COUNT) {
+					// check if memory for a new route is available
+					Route &route = this->temp.route;
+					route.srcTopicLength = TopicBuffer::MAX_TOPIC_LENGTH * 3;
+					route.dstTopicLength = 0;
+					if (this->routes.hasSpace(&route)) {
+						// clea
+						route.srcTopicLength = 0;
+						this->tempState.route.srcTopicId = 0;
+						this->tempState.route.dstTopicId = 0;
+						push(ADD_ROUTE);
+					} else {
+						// error: out of memory
+						// todo
+					}
+				} else {
+					// error: maximum number of routes reached
+					// todo: inform user
+				}
+			}
+			
+			// exit
+			if (entry("Exit"))
+				pop();
+		}
+		break;
+	case EDIT_ROUTE:
+	case ADD_ROUTE:
+		menu(delta, activated);
+		{
+			// get route
+			Route &route = this->temp.route;
+
+			String srcTopic = route.getSrcTopic();
+			String dstTopic = route.getDstTopic();
+			if (entry(this->tempState.route.srcTopicId != 0 ? srcTopic : "Select Source Topic")) {
+				enterTopicSelector(srcTopic, false, 0);
+			}
+			if (entry(this->tempState.route.dstTopicId != 0 ? dstTopic : "Select Destination Topic")) {
+				enterTopicSelector(dstTopic, true, 1);
+			}
+			
+			// save, delete, cancel
+			if (this->tempState.route.srcTopicId != 0 && this->tempState.route.dstTopicId != 0) {
+				if (entry("Save Route")) {
+					int index = getThisIndex();
+					
+					// unsubscribe old topic
+					if (index < this->routes.size()) {
+						TopicBuffer topic = this->routes[index].flash->getSrcTopic();
+						unsubscribeTopic(topic.status());
+					}
+					this->routes.write(index, &this->temp.route, &this->tempState.route);
+					pop();
+				}
+			}
+			if (this->state == EDIT_ROUTE) {
+				if (entry("Delete Route")) {
+					int index = getThisIndex();
+
+					// unsubscribe new topic
+					TopicBuffer topic = this->temp.route.getSrcTopic();
+					unsubscribeTopic(topic.status());
+
+					// unsubscribe old topic
+					topic = this->routes[index].flash->getSrcTopic();
+					unsubscribeTopic(topic.status());
+					
+					this->routes.erase(getThisIndex());
+					pop();
+				}
+			}
+			if (entry("Cancel")) {
+				// unsubscribe new topic
+				TopicBuffer topic = this->temp.route.getSrcTopic();
+				unsubscribeTopic(topic.status());
+				pop();
+			}
+		}
+		break;
 	case TIMERS:
 		menu(delta, activated);
 		{
 			// list timers
-			int timerCount = this->timers.size();
-			for (int i = 0; i < timerCount; ++i) {
-				TimerElement e = this->timers[i];
+			for (auto e : this->timers) {
 				Timer const &timer = *e.flash;
 				
 				int minutes = timer.time.getMinutes();
 				int hours = timer.time.getHours();
-				this->buffer << dec(hours) << ':' << dec(minutes, 2);
-				this->buffer << "    ";
-				if (entryWeekdays(this->buffer, timer.time.getWeekdays())) {
+				StringBuffer<16> b = dec(hours) + ':' + dec(minutes, 2) + "    ";
+				if (entryWeekdays(b, timer.time.getWeekdays())) {
 					// edit timer
-					this->temp.timer = timer;
-					this->tempState = e.ram;
+					copy(this->temp.timer, this->tempState.timer, timer, *e.ram);
 					push(EDIT_TIMER);
 				}
-
-				this->buffer.clear();
 			}
 			
 			// add timer
 			if (entry("Add Timer")) {
 				// check if list of timers is full
 				if (this->timers.size() < MAX_TIMER_COUNT) {
-					this->temp.timer.time = {};
-					
-					// check for space for a timer with one command and topic length of 64
-					this->temp.timer.commandCount = 1;
-					this->temp.timer.u.commands[0].topicLength = 64;
-					if (timers.hasSpace(&this->temp.timer)) {
-						// clear commands again
-						this->temp.timer.commandCount = 0;
+					// check if memory for a new timer is available
+					Timer &timer = this->temp.timer;
+					timer.time = {};
+					timer.commandCount = 1;
+					timer.u.commands[0].topicLength = TopicBuffer::MAX_TOPIC_LENGTH * 3;
+					if (this->timers.hasSpace(&timer)) {
+						// clear
+						timer.commandCount = 0;
 						push(ADD_TIMER);
 					} else {
 						// error: out of memory
@@ -683,7 +777,7 @@ void RoomControl::updateMenu(int delta, bool activated) {
 					}
 				} else {
 					// error: maximum number of timers reached
-					// todo
+					// todo: inform user
 				}
 			}
 
@@ -702,7 +796,7 @@ void RoomControl::updateMenu(int delta, bool activated) {
 			
 			// get timer
 			Timer &timer = this->temp.timer;
-			TimerState &timerState = *(TimerState*)this->tempState;
+			TimerState &timerState = this->tempState.timer;
 			
 			// get time
 			int hours = timer.time.getHours();
@@ -719,13 +813,13 @@ void RoomControl::updateMenu(int delta, bool activated) {
 			}
 
 			// time menu entry
-			this->buffer << "Time: ";
+			StringBuffer<16> b = "Time: ";
 			editBegin[1] = this->buffer.length();
-			this->buffer << dec(hours);
+			this->buffer += dec(hours);
 			editEnd[1] = this->buffer.length();
-			this->buffer << ':';
+			this->buffer += ':';
 			editBegin[2] = this->buffer.length();
-			this->buffer << dec(minutes, 2);
+			this->buffer += dec(minutes, 2);
 			editEnd[2] = this->buffer.length();
 			entry(this->buffer, edit > 0, editBegin[edit], editEnd[edit]);
 			this->buffer.clear();
@@ -736,7 +830,7 @@ void RoomControl::updateMenu(int delta, bool activated) {
 				weekdays ^= 1 << (edit - 1);
 
 			// weekdays menu entry
-			this->buffer << "Days: ";
+			b = "Days: ";
 			entryWeekdays(this->buffer, weekdays, edit > 0, this->edit - 1);
 			this->buffer.clear();
 
@@ -746,9 +840,9 @@ void RoomControl::updateMenu(int delta, bool activated) {
 			// commands
 			line();
 			{
-				uint8_t *buffer = timer.u.buffer;
-				uint8_t *end = array::end(timer.u.buffer);
-				uint8_t *data = buffer + sizeof(Command) * timer.commandCount;
+				//uint8_t *buffer = timer.u.buffer;
+				uint8_t *data = timer.begin();
+				uint8_t *end = timer.end();
 				int commandIndex = 0;
 				while (commandIndex < timer.commandCount) {
 					// get command
@@ -771,79 +865,79 @@ void RoomControl::updateMenu(int delta, bool activated) {
 					switch (command.type) {
 					case Command::BUTTON:
 						// button state is release or press, one data byte
-						this->buffer << "Button: ";
+						b = "Button: ";
 						editEnd[1] = this->buffer.length() - 1;
 
 						if (edit == 2 && delta != 0)
 							value[1] ^= 1;
 						
 						editBegin[2] = this->buffer.length();
-						this->buffer << buttonStates[data[0] & 1];
+						b += buttonStates[data[0] & 1];
 						editEnd[2] = this->buffer.length();
 						break;
 					case Command::ROCKER:
 						// rocker state is release, up or down, one data byte
-						this->buffer << "Rocker: ";
+						b = "Rocker: ";
 						editEnd[1] = this->buffer.length() - 1;
 
 						if (edit == 2)
 							value[0] = (value[0] + delta + 30) % 3;
 						
 						editBegin[2] = this->buffer.length();
-						this->buffer << rockerStates[data[0] & 3];
+						b += rockerStates[data[0] & 3];
 						editEnd[2] = this->buffer.length();
 						break;
 					case Command::BINARY:
 						// binary state is off or on, one data byte
-						this->buffer << "Binary: ";
+						b = "Binary: ";
 						editEnd[1] = this->buffer.length() - 1;
 
 						if (edit == 2 && delta != 0)
 							value[0] ^= 1;
 
 						editBegin[2] = this->buffer.length();
-						this->buffer << binaryStates[data[0] & 1];
+						b += binaryStates[data[0] & 1];
 						editEnd[2] = this->buffer.length();
 						break;
 					case Command::VALUE8:
 						// value 0-255, one data byte
-						this->buffer << "Value 0-255: ";
+						b = "Value 0-255: ";
 						editEnd[1] = this->buffer.length() - 1;
 
 						if (edit == 2)
 							value[0] += delta;
 						
 						editBegin[2] = this->buffer.length();
-						this->buffer << dec(data[0]);
+						b += dec(data[0]);
 						editEnd[2] = this->buffer.length();
 						break;
 					case Command::PERCENTAGE:
 						// percentage 0-100, one data byte
-						this->buffer << "Percentage: ";
+						b = "Percentage: ";
 						editEnd[1] = this->buffer.length() - 1;
 
 						if (edit == 2)
 							value[0] = (value[0] + delta + 100) % 100;
 						
 						editBegin[2] = this->buffer.length();
-						this->buffer << dec(data[0]) << '%';
+						b += dec(data[0]) + '%';
 						editEnd[2] = this->buffer.length();
 						break;
 					case Command::TEMPERATURE:
 						// room temperature 8° - 33,5°
-						this->buffer << "Temperature: ";
+						b = "Temperature: ";
 						editEnd[1] = this->buffer.length() - 1;
 
 						if (edit == 2)
 							value[0] += delta;
 						
 						editBegin[2] = this->buffer.length();
-						this->buffer << dec(8 + data[0] / 10) << '.' << dec(data[0] % 10);
+						b += dec(8 + data[0] / 10) + '.' + dec(data[0] % 10);
 						editEnd[2] = this->buffer.length();
-						this->buffer << "oC";
+						b += "oC";
 						break;
 					case Command::COLOR_RGB:
-						this->buffer << "RGB Color: ";
+						b = "RGB Color: ";
 						editEnd[1] = this->buffer.length() - 1;
 
 						if (edit == 2)
@@ -854,55 +948,28 @@ void RoomControl::updateMenu(int delta, bool activated) {
 							value[2] += delta;
 
 						editBegin[2] = this->buffer.length();
-						this->buffer << dec(data[0]);
+						b += dec(data[0]);
 						editEnd[2] = this->buffer.length();
-						this->buffer << ' ';
+						b += ' ';
 						
 						editBegin[3] = this->buffer.length();
-						this->buffer << dec(data[1]);
+						b += dec(data[1]);
 						editEnd[3] = this->buffer.length();
-						this->buffer << ' ';
+						b += ' ';
 
 						editBegin[4] = this->buffer.length();
-						this->buffer << dec(data[2]);
+						b += dec(data[2]);
 						editEnd[4] = this->buffer.length();
 						
 						break;
 					case Command::TYPE_COUNT:
 						;
 					}
-					entry(this->buffer, edit > 0, editBegin[edit], editEnd[edit]);
-					this->buffer.clear();
+					entry(b, edit > 0, editBegin[edit], editEnd[edit]);
 					
 					// menu entry for topic
 					if (entry(!topic.empty() ? topic : "Select Topic")) {
-						// check if current topic has the format <room>/<device>/<attribute>
-						int p1 = topic.indexOf('/');
-						int p2 = topic.indexOf('/', p1 + 1);
-						int p3 = topic.indexOf('/', p2 + 1);
-						
-						String rd;
-						if (p1 > 0 && p2 > p1 + 1 && p3 == -1) {
-							// get <room>/<device>
-							rd = topic.substring(0, p2);
-							this->topicDepth = 2;
-						} else {
-							// start at this room
-							rd = this->room[0].flash->name;
-							this->topicDepth = 1;
-						}
-
-						// selected topic is <prefix>/<room>/<device> or <prefix>/<room>
-						this->selectedTopic << prefix << '/' << rd;
-						
-						// only list attributes that have a command topic (ending with /cmd)
-						this->onlyCommands = true;
-
-						// subscribe to selected topic
-						this->selectedTopicId = subscribeTopic(this->selectedTopic).topicId;
-						publish(this->selectedTopicId, "?", 1);
-						push(SELECT_TOPIC);
-						this->tempIndex = commandIndex;
+						enterTopicSelector(topic, true, commandIndex);
 					}
 					
 					// menu entry for testing the command
@@ -914,14 +981,15 @@ void RoomControl::updateMenu(int delta, bool activated) {
 					int size = command.topicLength + valueSize;
 					if (entry("Delete Command")) {
 						// erase command
-						//array::erase(buffer, data - buffer, sizeof(Command) * commandIndex, sizeof(Command));
-						array::erase(buffer + sizeof(Command) * commandIndex, data, sizeof(Command));
+						array::erase(reinterpret_cast<uint8_t *>(&command), data, sizeof(Command));
 						--timer.commandCount;
 						data -= sizeof(Command);
 
 						// erase data
-						//array::erase(buffer, end - buffer, data - buffer, sizeof(Command) + size);
-						array::erase(data, buffer, sizeof(Command) + size);
+						array::erase(data, end, sizeof(Command) + size);
+					
+						// erase topic id
+						array::erase(timerState.topicIds + commandIndex, array::end(timerState.topicIds), 1);
 					
 						// select next menu entry (-4 + 1)
 						this->selected -= 3;
@@ -937,14 +1005,15 @@ void RoomControl::updateMenu(int delta, bool activated) {
 				if (timer.commandCount < Timer::MAX_COMMAND_COUNT) {
 					if (entry("Add Command")) {
 						// insert data
-						//array::insert(buffer, end - buffer, sizeof(Command) * commandIndex, sizeof(Command));
-						array::insert(buffer + sizeof(Command) * commandIndex, end, sizeof(Command));
+						array::insert(data, end, sizeof(Command));
 						data += sizeof(Command);
 
 						// initialize new command
 						Command &command = timer.u.commands[commandIndex];
 						command.type = Command::BINARY;
 						command.topicLength = 0;
+						
+						// initialize binary value
 						*data = 0;
 						
 						++timer.commandCount;
@@ -955,43 +1024,44 @@ void RoomControl::updateMenu(int delta, bool activated) {
 			
 			// save, delete, cancel
 			if (entry("Save Timer")) {
-				this->timers.write(getThisIndex(), &this->temp.timer);
+				int index = getThisIndex();
+				this->timers.write(index, &this->temp.timer);
 				pop();
 			}
 			if (this->state == EDIT_TIMER) {
 				if (entry("Delete Timer")) {
-					this->timers.erase(getThisIndex());
+					int index = getThisIndex();
+					this->timers.erase(index);
 					pop();
 				}
 			}
-			if (entry("Cancel"))
+			if (entry("Cancel")) {
 				pop();
+			}
 		}
 		break;
 	case SELECT_TOPIC:
-	//case SELECT_COMMAND_TOPIC:
 		menu(delta, activated);
 		
 		// menu entry for "parent directory" (select device or room)
 		if (this->topicDepth > 0) {
-			static char const* components[] = {"Room", "Device"};
-			this->buffer << "Select " << components[this->topicDepth - 1];
-			if (entry(this->buffer)) {
+			constexpr String components[] = {"Room", "Device"};
+			StringBuffer<16> b = "Select " + components[this->topicDepth - 1];
+			if (entry(b)) {
 				// unsubscribe from current topic
-				unsubscribeTopic(this->selectedTopic);
+				unsubscribeTopic(this->selectedTopic.enumeration());
 
 				// go to "parent directory"
+				this->selectedTopic.removeLast();
 				--this->topicDepth;
-				this->selectedTopic.setLength(this->selectedTopic.lastIndexOf('/'));
 				
 				// subscribe to new topic
-				this->selectedTopicId = subscribeTopic(this->selectedTopic).topicId;
+				this->selectedTopicId = subscribeTopic(this->selectedTopic.enumeration(), QOS).topicId;
 
 				// request the new topic list, gets filled in onPublished
 				this->topicSet.clear();
 				publish(this->selectedTopicId, "?", 1);
 			}
-			this->buffer.clear();
 		}
 
 		// menu entry for each room/device/attribute
@@ -1000,51 +1070,85 @@ void RoomControl::updateMenu(int delta, bool activated) {
 			if (entry(topic))
 				selected = topic;
 		}
-		if (!selected.empty()) {
-			++this->topicDepth;
-			
+		
+		// cancel menu entry
+		if (entry("Cancel")) {
 			// unsubscribe from selected topic if it is not one of the own global topics
 			RoomState *roomState = this->room[0].ram;
-			if (this->selectedTopicId != roomState->houseTopicId && this->selectedTopicId != roomState->roomTopicId)
-				unsubscribeTopic(this->selectedTopic);
+			//if (this->selectedTopicId != roomState->houseTopicId && this->selectedTopicId != roomState->roomTopicId)
+			unsubscribeTopic(this->selectedTopic.enumeration());
+			
+			// clear
+			this->selectedTopic.clear();
+			this->selectedTopicId = 0;
+			this->topicSet.clear();
+			
+			// exit menu
+			pop();
+		}
+		
+		if (!selected.empty()) {
+			// unsubscribe from selected topic if it is not one of the own global topics
+			RoomState *roomState = this->room[0].ram;
+			//if (this->selectedTopicId != roomState->houseTopicId && this->selectedTopicId != roomState->roomTopicId)
+			unsubscribeTopic(this->selectedTopic.enumeration());
 			
 			// append new element (room, device or attribute) to selected topic
-			this->selectedTopic << '/' << selected;
-			
+			this->selectedTopic /= selected;// << '/' << selected;
+			++this->topicDepth;
+
 			// clear list of elements
 			this->topicSet.clear();
 			
 			if (this->topicDepth < 3) {
 				// enter next level
-				this->selectedTopicId = subscribeTopic(this->selectedTopic).topicId;
-				publish(this->selectedTopicId, "?", 1);
+				this->selectedTopicId = subscribeTopic(this->selectedTopic.enumeration(), QOS).topicId;
+				publish(this->selectedTopicId, "?", QOS);
+				
+				// select first entry in menu
+				this->selected = 1;
 			} else {
 				// exit menu and write topic back to command
 				pop();
-				State state = this->stack[this->stackIndex].state;
 				
-				switch (state) {
+				String topic = this->selectedTopic.string();
+				switch (this->stack[this->stackIndex].state) {
+				case EDIT_ROUTE:
+				case ADD_ROUTE:
+					{
+						Route &route = this->temp.route;
+						RouteState &routeState = this->tempState.route;
+						
+						if (this->tempIndex == 0) {
+							TopicBuffer oldTopic = route.getSrcTopic();
+							//if (routeState.srcTopicId != 0)
+							unsubscribeTopic(oldTopic.status());
+							route.setSrcTopic(topic);
+							routeState.srcTopicId = subscribeTopic(this->selectedTopic.status(), QOS).topicId;
+						} else {
+							route.setDstTopic(topic);
+							routeState.dstTopicId = registerTopic(this->selectedTopic.command()).topicId;
+						}
+					}
+					break;
 				case EDIT_TIMER:
 				case ADD_TIMER:
 					{
 						Timer &timer = this->temp.timer;
-						TimerState &timerState = *(TimerState*)this->tempState;
+						TimerState &timerState = this->tempState.timer;
 						
 						// set topic to command
 						int commandIndex = this->tempIndex;
 						Command &command = timer.u.commands[commandIndex];
-						uint8_t *buffer = timer.u.buffer;
-						uint8_t *end = array::end(timer.u.buffer);
-						uint8_t *data = buffer + sizeof(Command) * timer.commandCount;
+						uint8_t *data = timer.begin();
+						uint8_t *end = timer.end();
 						for (int i = 0; i < commandIndex; ++i)
 							data += timer.u.commands[i].getFlashSize();
 						data += command.getValueSize();
-						String topic = this->selectedTopic.string().substring(String(prefix).length + 1);
 						command.setTopic(topic, data, end);
 						
 						// register topic for command
-						this->selectedTopic << "/cmd";
-						timerState.topicIds[commandIndex] = registerTopic(this->selectedTopic).topicId;
+						timerState.topicIds[commandIndex] = registerTopic(this->selectedTopic.command()).topicId;
 					}
 					break;
 				default:
@@ -1056,516 +1160,7 @@ void RoomControl::updateMenu(int delta, bool activated) {
 				this->selectedTopicId = 0;
 			}
 		}
-		
-		if (entry("Cancel")) {
-			unsubscribeTopic(this->selectedTopic);
-			this->selectedTopic.clear();
-			this->selectedTopicId = 0;
-			this->topicSet.clear();
-			pop();
-		}
-
 		break;
-
-/*
-	case EVENTS:
-		{
-			menu(delta, activated);
-			
-			// list events
-			for (const Event &event : this->events) {
-				if (event.input < INPUT_COUNT) {
-					this->buffer = "Motion Detector";
-				} else if (event.input == INPUT_COUNT) {
-					this->buffer = "(No Input)";
-				} else {
-					this->buffer = hex(event.input), ':', hex(event.value);
-				}
-				if (entry(this->buffer)) {
-					// edit event
-					this->u.event = this->events[this->selected];
-					this->actions = &u.event.actions;
-					push(EDIT_EVENT);
-				}
-			}
-			if (this->events.size() < EVENT_COUNT && this->storage.hasSpace(1, offsetof(Event, actions.actions[8]))) {
-				if (entry("Add Event")) {
-					this->u.event.input = INPUT_COUNT;
-					this->u.event.value = 0;
-					this->u.event.actions.clear();
-					this->actions = &u.event.actions;
-					push(ADD_EVENT);
-				}
-			}
-			if (entry("Exit"))
-				pop();
-		}
-		break;
-	case EDIT_EVENT:
-	case ADD_EVENT:
-		{
-			menu(delta, activated);
-
-			// edit input
-			bool editEntry = isEdit();
-			if (editEntry && delta != 0) {
-				uint32_t i = this->u.event.input + delta;
-				this->u.event.input = i > INPUT_COUNT ? (i < 0xfffffff0 ? INPUT_COUNT : 0) : i;
-				this->u.event.value = 0;
-			}
-
-			// input menu entry
-			this->buffer = "Input: ";
-			int begin = this->buffer.length();
-			if (this->u.event.input < INPUT_COUNT) {
-				this->buffer += "Motion Detector";
-			} else if (this->u.event.input == INPUT_COUNT) {
-				if (editEntry)
-					this->buffer += "Enocean...";
-				else
-					this->buffer += "(No Input)";
-			} else {
-				this->buffer += hex(this->u.event.input), ':', hex(this->u.event.value);
-			}
-			int end = this->buffer.length();
-			entry(this->buffer, editEntry, begin, end);
-
-			// list actions of event
-			listActions();
-
-			if (entry("Save Event")) {
-				this->events.write(getThisIndex(), this->u.event);
-				pop();
-			}
-			if (this->state == EDIT_EVENT) {
-				if (entry("Delete Event")) {
-					this->events.erase(getThisIndex());
-					pop();
-				}
-			}
-			if (entry("Cancel"))
-				pop();
-		}
-		break;
-
-	case TIMERS:
-		{
-			menu(delta, activated);
-			
-			// list timers
-			for (const Timer &timer : this->timers) {
-				int minutes = (timer.time & Clock::MINUTES_MASK) >> Clock::MINUTES_SHIFT;
-				int hours = (timer.time & Clock::HOURS_MASK) >> Clock::HOURS_SHIFT;
-				this->buffer = bcd(hours) , ':' , bcd(minutes, 2);
-				this->buffer += "    ";
-				if (entryWeekdays(this->buffer, timer.weekdays)) {
-					// edit timer
-					this->u.timer = this->timers[this->selected];
-					this->actions = &this->u.timer.actions;
-					push(EDIT_TIMER);
-				}
-			}
-			if (this->timers.size() < TIMER_COUNT && this->storage.hasSpace(1, offsetof(Timer, actions.actions[8]))) {
-				if (entry("Add Timer")) {
-					this->u.timer.time = 0;
-					this->u.timer.weekdays = 0;
-					this->u.timer.actions.clear();
-					this->actions = &this->u.timer.actions;
-					push(ADD_TIMER);
-				}
-			}
-			if (entry("Exit"))
-				pop();
-		}
-		break;
-	case EDIT_TIMER:
-	case ADD_TIMER:
-		{
-			menu(delta, activated);
-
-			// time
-			{
-				// get time
-				int hours = (this->u.timer.time & Clock::HOURS_MASK) >> Clock::HOURS_SHIFT;
-				int minutes = (this->u.timer.time & Clock::MINUTES_MASK) >> Clock::MINUTES_SHIFT;
-
-				// edit time
-				bool editEntry = isEdit(2);
-				if (editEntry) {
-					if (this->edit == 1)
-						hours = Clock::addTime(hours, delta, 0x23);
-					else
-						minutes = Clock::addTime(minutes, delta, 0x59);
-
-					// write back
-					this->u.event.input = (hours << Clock::HOURS_SHIFT) | (minutes << Clock::MINUTES_SHIFT);
-				}
-
-				// time menu entry
-				this->buffer = "Time: ";
-				int begin1 = this->buffer.length();
-				this->buffer += bcd(hours);
-				int end1 = this->buffer.length();
-				this->buffer += ':';
-				int begin2 = this->buffer.length();
-				this->buffer += bcd(minutes, 2);
-				int end2 = this->buffer.length();
-				entry(this->buffer, editEntry, this->edit == 1 ? begin1 : begin2, this->edit == 1 ? end1 : end2);
-			}
-
-			// weekdays
-			{
-				// edit weekdays
-				bool editEntry = isEdit(7);
-				if (editEntry) {
-					// edit weekday
-					if (delta != 0)
-						this->u.timer.weekdays ^= 1 << (this->edit - 1);
-				}
-
-				// get weekdays
-				int weekdays = this->u.timer.weekdays;
-
-				// weekdays menu entry
-				this->buffer = "Days: ";
-				entryWeekdays(this->buffer, weekdays, editEntry, this->edit - 1);
-			}
-
-			// list actions of timer
-			listActions();
-
-			if (entry("Save Timer")) {
-				this->timers.write(getThisIndex(), this->u.timer);
-				pop();
-			}
-			if (this->state == EDIT_EVENT) {
-				if (entry("Delete Timer")) {
-					this->timers.erase(getThisIndex());
-					pop();
-				}
-			}
-			if (entry("Cancel"))
-				pop();
-		}
-		break;
-
-	case SCENARIOS:
-		{
-			int scenarioCount = this->scenarios.size();
-
-			menu(delta, activated);
-			for (int i = 0; i < scenarioCount; ++i) {
-				const Scenario &scenario = scenarios[i];
-				this->buffer = scenario.name;
-				if (entry(this->buffer)) {
-					// edit scenario
-					this->u.scenario = scenarios[this->selected];
-					this->actions = &this->u.scenario.actions;
-					push(EDIT_SCENARIO);
-				}
-			}
-			if (scenarioCount < SCENARIO_COUNT && this->storage.hasSpace(1, offsetof(Scenario, actions.actions[8]))) {
-				if (entry("Add Scenario")) {
-					this->u.device.id = newScenarioId();
-					copy("New Scenario", this->u.device.name);
-					this->u.scenario.actions.clear();
-					this->actions = &this->u.scenario.actions;
-					push(ADD_SCENARIO);
-				}
-			}
-			if (entry("Exit"))
-				pop();
-		}
-		break;
-	case EDIT_SCENARIO:
-	case ADD_SCENARIO:
-		{
-			menu(delta, activated);
-
-			this->buffer = "Name: ", this->u.scenario.name;
-			entry(this->buffer);
-
-			// list actions of scenario
-			listActions();
-
-			if (entry("Save Scenario")) {
-				// save
-				this->scenarios.write(getThisIndex(), this->u.scenario);
-				pop();
-			}
-			if (this->state == EDIT_SCENARIO)
-				entry("Delete Scenario");
-			if (entry("Cancel"))
-				pop();
-		}
-		break;
-
-	case SELECT_ACTION:
-	case ADD_ACTION:
-		{
-			menu(delta, activated);
-
-			// list all device states and state transitions
-			for (const Device &device : this->devices) {
-				Array<Device::State> states = device.getActionStates();
-				for (int i = 0; i < states.length; ++i) {
-					this->buffer = device.name, ' ', string(states[i].name);
-					if (entry(this->buffer)) {
-						pop();
-						this->actions->set(this->actionIndex, {device.id, states[i].state});
-					}
-				}
-
-				Array<Device::Transition> transitions = device.getTransitions();
-				for (int i = 0; i < transitions.length; ++i) {
-					Device::Transition transition = transitions[i];
-					this->buffer = device.name, ' ', device.getStateName(transition.fromState), " -> ",
-						device.getStateName(transition.toState);
-					if (entry(this->buffer)) {
-						pop();
-						this->actions->set(this->actionIndex, {device.id, uint8_t(Action::TRANSITION_START + i)});
-					}
-				}
-			}
-			
-			// list all scenarios
-			for (const Scenario &scenario : this->scenarios) {
-				this->buffer = scenario.name;
-				if (entry(this->buffer)) {
-					pop();
-					this->actions->set(this->actionIndex, {scenario.id, Action::SCENARIO});
-				}
-			}
-			line();
-	
-			if (this->state == SELECT_ACTION) {
-				if (entry("Delete Action")) {
-				   pop();
-				   this->actions->erase(this->actionIndex);
-			   }
-			}
-			if (entry("Cancel"))
-				pop();
-		}
-		break;
-
-	case DEVICES:
-		{
-			// list devices
-			menu(delta, activated);
-			int deviceCount = this->devices.size();
-			for (int i = 0; i < deviceCount; ++i) {
-				const Device &device = this->devices[i];
-				DeviceState &deviceState = this->deviceStates[i];
-				this->buffer = device.name, ": ";
-				addDeviceStateToString(device, deviceState);
-				if (entry(this->buffer)) {
-					// edit device
-					this->u.device = devices[this->selected];
-					this->actions = &this->u.device.actions;
-					push(EDIT_DEVICE);
-				}
-			}
-			if (deviceCount < DEVICE_COUNT && this->storage.hasSpace(1, offsetof(Device, actions.actions[8]))) {
-				if (entry("Add Device")) {
-					this->u.device.id = newDeviceId();
-					this->u.device.type = Device::Type::SWITCH;
-					copy("New Device", this->u.device.name);
-					this->u.device.value1 = 0;
-					this->u.device.value2 = 0;
-					this->u.device.output = 0;
-					this->u.device.actions.clear();
-					this->actions = &this->u.device.actions;
-					push(ADD_DEVICE);
-				}
-			}
-			if (entry("Exit"))
-				pop();
-		}
-		break;
-	case EDIT_DEVICE:
-	case ADD_DEVICE:
-		{
-			menu(delta, activated);
-
-			label("Device");
-			line();
-			
-			// device type
-			{
-				bool editEntry = isEdit();
-				if (editEntry) {
-					int type = clamp(int(this->u.device.type) + delta, 0, 4);
-					this->u.device.type = Device::Type(type);
-				}
-				this->buffer = "Type: ";
-				int begin = this->buffer.length();
-				switch (this->u.device.type) {
-					case Device::Type::SWITCH:
-						this->buffer += "Switch";
-						break;
-					case Device::Type::LIGHT:
-						this->buffer += "Light";
-						break;
-					case Device::Type::DIMMER:
-						this->buffer += "Dimmer";
-						break;
-					case Device::Type::BLIND:
-						this->buffer += "Blind";
-						break;
-					case Device::Type::HANDLE:
-						this->buffer += "Handle";
-						break;
-				}
-				int end = this->buffer.length();
-				entry(this->buffer, editEntry, begin, end);
-			}
-
-			// device name
-			this->buffer = "Name: ", this->u.device.name;
-			entry(this->buffer);
-
-			// device state
-			this->buffer = "State: ";
-			addDeviceStateToString(this->u.device, this->deviceStates[getThisIndex()]);
-			entry(this->buffer);
-
-			// device output (to local relay or enocean device)
-			{
-				bool editEntry = isEdit();
-				if (editEntry && delta != 0) {
-					uint32_t i = this->u.device.output + delta;
-					this->u.device.output = i > OUTPUT_COUNT ? (i < 0xfffffff0 ? OUTPUT_COUNT : 0) : i;
-				}
-				this->buffer = "Output: ";
-				int begin = this->buffer.length();
-				if (this->u.device.output < OUTPUT_COUNT) {
-					this->buffer += "Output ", int(this->u.device.output);
-				} else if (this->u.device.output == OUTPUT_COUNT) {
-					if (editEntry)
-						this->buffer += "Enocean...";
-					else
-						this->buffer += "(No Output)";
-				} else {
-					this->buffer += hex(this->u.device.output);
-				}
-				int end = this->buffer.length();
-				entry(this->buffer, editEntry, begin, end);
-			}
-
-			line();
-			
-			// list/edit conditions
-			int conditionCount = this->u.device.actions.size();
-			uint8_t id = this->u.device.id;
-			if (conditionCount > 0 && this->u.device.actions[0].id != id) {
-				this->buffer = string(this->u.device.getStates()[0].name), " when";
-				label(this->buffer);
-			}
-			bool noEffect = false;
-			for (int i = 0; i < conditionCount; ++i) {
-				Action condition = this->u.device.actions[i];
-
-				if (condition.id == id) {
-					// check if constrained state is at last position
-					bool last = (i == conditionCount - 1) || this->u.device.actions[i + 1].id == id;
-
-					this->buffer.clear();
-					String stateName = this->u.device.getStateName(condition.state);
-					if (last && i == 0) {
-						this->buffer += "Initial ", stateName;
-					} else {
-						if (!noEffect) {
-							if (last)
-								this->buffer += "Else ";
-							this->buffer += stateName;
-							if (!last)
-								this->buffer += " When";
-						} else {
-							this->buffer += '(', stateName, ')';
-						}
-					}
-					noEffect |= last;
-				} else {
-					setConstraint(this->u.device.actions[i]);
-				}
-				if (entry(this->buffer)) {
-					// edit condition
-					push(SELECT_CONDITION);
-					this->selected = 0;
-					this->actionIndex = i;
-				}
-			}
-			if (conditionCount < Actions::ACTION_COUNT && this->storage.hasSpace(0, sizeof(Action))) {
-				if (entry("Add Condition")) {
-					push(ADD_CONDITION);
-					this->selected = 0;
-					this->actionIndex = conditionCount;
-				}
-			}
-			line();
-			
-			if (entry("Save Device")) {
-				this->devices.write(getThisIndex(), this->u.device);
-				pop();
-			}
-			if (this->state == EDIT_DEVICE) {
-				if (entry("Delete Device")) {
-					deleteDeviceId(this->u.device.id);
-					this->devices.erase(getThisIndex());
-					pop();
-				}
-			}
-			if (entry("Cancel"))
-				pop();
-		}
-		break;
-	case SELECT_CONDITION:
-	case ADD_CONDITION:
-		{
-			menu(delta, activated);
-
-			// list "own" device states
-			{
-				Array<Device::State> states = this->u.device.getActionStates();
-				for (int i = 0; i < states.length; ++i) {
-					this->buffer = string(states[i].name);
-					if (entry(this->buffer)) {
-						// set "own" device state
-						pop();
-						this->u.device.actions.set(this->actionIndex, {this->u.device.id, states[i].state});
-					}
-				}
-			}
-			line();
-			
-			// list device states of other devices
-			for (const Device &device : this->devices) {
-				if (device.id != this->u.device.id) {
-					Array<Device::State> states = device.getStates();
-					for (int i = 0; i < states.length; ++i) {
-						this->buffer = device.name, ' ', string(states[i].name);
-						if (entry(this->buffer)) {
-							// set condition
-							pop();
-							this->u.device.actions.set(this->actionIndex, {device.id, states[i].state});
-						}
-					}
-				}
-			}
-			
-			line();
-			if (this->state == SELECT_CONDITION) {
-				if (entry("Remove Condition")) {
-					pop();
-					this->u.device.actions.erase(this->actionIndex);
-				}
-			}
-			if (entry("Cancel"))
-				pop();
-		}
-		break;
-*/
 	}
 	this->buffer.clear();
 }
@@ -1607,7 +1202,7 @@ void RoomControl::menu(int delta, bool activated) {
 	this->entryY = 0;
 }
 	
-void RoomControl::label(const char* s) {
+void RoomControl::label(String s) {
 	int x = 10;
 	int y = this->entryY + 2 - this->yOffset;
 	this->bitmap.drawText(x, y, tahoma_8pt, s, 1);
@@ -1783,16 +1378,14 @@ void RoomControl::subscribeDevices() {
 	RoomElement e = this->room[0];
 	Room const &room = *e.flash;
 	RoomState &roomState = *e.ram;
-
+	
 	// house topic (room name is published when "?" is received on this topic)
-	this->buffer << prefix;
-	//int lenght = this->buffer.length();
-	roomState.houseTopicId = registerTopic(this->buffer).topicId;
+	TopicBuffer topic;
+	roomState.houseTopicId = subscribeTopic(topic.enumeration(), QOS).topicId;
 
 	// toom topic (device names are published when "?" is received on this topic)
-	this->buffer << '/' << room.name;
-	roomState.roomTopicId = registerTopic(this->buffer).topicId;
-	this->buffer.clear();
+	topic /= room.name;
+	roomState.roomTopicId = subscribeTopic(topic.enumeration(), QOS).topicId;
 
 
 	// register/subscribe device topics
@@ -1800,47 +1393,25 @@ void RoomControl::subscribeDevices() {
 		subscribeDevice(i);
 	}
 
-	// register timers
-	for (int i = 0; i < this->timers.size(); ++i) {
-		registerTimer(i);
+	// register routes
+	for (int i = 0; i < this->routes.size(); ++i) {
+		initRoute(i);
 	}
 
-this->forwards[0].srcId = subscribeTopic("rc/room/00000001/a").topicId;
-this->forwards[0].dstId = registerTopic("rc/room/00000001/x/cmd").topicId;
-this->forwards[1].srcId = subscribeTopic("rc/room/00000001/b0").topicId;
-this->forwards[1].dstId = registerTopic("rc/room/00000001/y0/cmd").topicId;
-this->forwards[2].srcId = subscribeTopic("rc/room/00000001/b1").topicId;
-this->forwards[2].dstId = registerTopic("rc/room/00000001/y1/cmd").topicId;
-this->forwards[3].srcId = subscribeTopic("rc/room/00000002/a").topicId;
-this->forwards[3].dstId = registerTopic("rc/room/00000002/x/cmd").topicId;
-this->forwards[4].srcId = subscribeTopic("rc/room/00000002/b0").topicId;
-this->forwards[4].dstId = registerTopic("rc/room/00000002/y/cmd").topicId;
-
+	// register timers
+	for (int i = 0; i < this->timers.size(); ++i) {
+		initTimer(i);
+	}
 }
 
 void RoomControl::subscribeDevice(int index) {
 	LocalDeviceElement e = this->localDevices[index];
 	
-	// <prefix>/<room>
-	this->buffer << prefix << '/' << this->room[0].flash->name;
-	{
-		LocalDevice const &device = *reinterpret_cast<LocalDevice const *>(e.flash);
-		DeviceState &state = *reinterpret_cast<DeviceState *>(e.ram);
-		
-		// <prefix>/<room>/<device>
-		this->buffer << '/' << device.getName();
-		state.deviceTopicId = registerTopic(this->buffer).topicId;
-		//int l = this->buffer.length();
+	// register device (<prefix>/<room>/<device>)
+	TopicBuffer topic = this->room[0].flash->name / e.flash->getName();
+	e.ram->deviceTopicId = subscribeTopic(topic.enumeration(), QOS).topicId;
 
-		// <prefix>/<room>/<device>/cmd
-		//this->buffer << "/cmd";
-		//state.deviceCommand = subscribeTopic(this->buffer).topicId;
-		//this->buffer.setLength(l);
-	}
-	
-	this->buffer << '/';
-	int deviceLength = this->buffer.length();
-
+	// register/subscribe device attributes (<prefix>/<room>/<device>/<attribute>)
 	switch (e.flash->type) {
 	case Lin::Device::SWITCH2:
 		{
@@ -1853,15 +1424,17 @@ void RoomControl::subscribeDevice(int index) {
 				Switch2State::Switches &ss = state.s[i];
 				uint8_t s = flags & 3;
 				if (s != 0) {
-					this->buffer.setLength(deviceLength);
-					this->buffer << "ab"[i];
+					StringBuffer<4> b = "ab"[i];
 					if (s == 2)
-						this->buffer << '0';
-					ss.stateId1 = registerTopic(this->buffer).topicId;
+						b += '0';
+					topic /= b;
+					ss.stateId1 = registerTopic(topic.status()).topicId;
+					topic.removeLast();
 					if (s == 2) {
-						this->buffer.setLength(deviceLength + 1);
-						this->buffer << '1';
-						ss.stateId2 = registerTopic(this->buffer).topicId;
+						b[1] = '1';
+						topic /= b;
+						ss.stateId2 = registerTopic(topic.status()).topicId;
+						topic.removeLast();
 					}
 				}
 
@@ -1869,26 +1442,25 @@ void RoomControl::subscribeDevice(int index) {
 				Switch2State::Relays &sr = state.r[i];
 				uint8_t r = (flags >> 4) & 3;
 				if (r != 0) {
-					this->buffer.setLength(deviceLength);
-					this->buffer << "xy"[i];
+					StringBuffer<4> b = "xy"[i];
 					if (r == 2)
-						this->buffer << '0';
-					sr.stateId1 = subscribeTopic(this->buffer).topicId;
-					this->buffer << "/cmd";
-					sr.commandId1 = subscribeTopic(this->buffer).topicId;
+						b += '0';
+					topic /= b;
+					sr.stateId1 = registerTopic(topic.status()).topicId;
+					sr.commandId1 = subscribeTopic(topic.command(), QOS).topicId;
+					topic.removeLast();
 					if (r == 2) {
-						this->buffer.setLength(deviceLength + 1);
-						this->buffer << '1';
-						sr.stateId2 = subscribeTopic(this->buffer).topicId;
-						this->buffer << "/cmd";
-						sr.commandId2 = subscribeTopic(this->buffer).topicId;
+						b[1] = '1';
+						topic /= b;
+						sr.stateId2 = registerTopic(topic.status()).topicId;
+						sr.commandId2 = subscribeTopic(topic.command(), QOS).topicId;
+						topic.removeLast();
 					}
 				}
 			}
 		}
 		break;
 	}
-	this->buffer.clear();
 }
 
 SystemTime RoomControl::updateDevices(SystemTime time) {
@@ -1953,9 +1525,8 @@ SystemTime RoomControl::updateDevices(SystemTime time) {
 							if (report || time >= sr.timeout1) {
 								// publish current position
 								float pos = sr.duration / dr.duration1;
-								this->buffer << flt(pos, 0, decimalCount);
-								publish(sr.stateId1, this->buffer, 1, true);
-								this->buffer.clear();
+								StringBuffer<8> b = flt(pos, 0, decimalCount);
+								publish(sr.stateId1, b, QOS, true);
 							}
 						}
 
@@ -1967,7 +1538,7 @@ SystemTime RoomControl::updateDevices(SystemTime time) {
 								state.relays &= ~relayBit1;
 								
 								// report state change
-								publish(sr.stateId1, &offOn[0], 1, 1, true);
+								publish(sr.stateId1, &offOn[0], 1, QOS, true);
 							}
 						}
 						if (state.relays & relayBit2) {
@@ -1976,7 +1547,7 @@ SystemTime RoomControl::updateDevices(SystemTime time) {
 								state.relays &= ~relayBit2;
 
 								// report state change
-								publish(sr.stateId2, &offOn[0], 1, 1, true);
+								publish(sr.stateId2, &offOn[0], 1, QOS, true);
 							}
 						}
 					}
@@ -1994,6 +1565,63 @@ SystemTime RoomControl::updateDevices(SystemTime time) {
 		}
 	}
 	return nextTimeout;
+}
+
+
+// Routes
+// ------
+
+int RoomControl::Route::getFlashSize() const {
+	return getOffset(Route, buffer[this->srcTopicLength + this->dstTopicLength]);
+}
+
+int RoomControl::Route::getRamSize() const {
+	return sizeof(RouteState);
+}
+
+void RoomControl::Route::setSrcTopic(String topic) {
+	// move data of destination topic
+	int oldSize = this->srcTopicLength;
+	int newSize = topic.length;
+	if (newSize > oldSize)
+		array::insert(this->buffer, this->buffer + newSize + this->dstTopicLength, newSize - oldSize);
+	else if (newSize < oldSize)
+		array::erase(this->buffer, this->buffer + oldSize + this->dstTopicLength, oldSize - newSize);
+
+	uint8_t *dst = this->buffer;
+	array::copy(dst, dst + topic.length, topic.begin());
+	this->srcTopicLength = newSize;
+}
+
+void RoomControl::Route::setDstTopic(String topic) {
+	uint8_t *dst = this->buffer + this->srcTopicLength;
+	array::copy(dst, dst + topic.length, topic.begin());
+	this->dstTopicLength = topic.length;
+}
+
+void RoomControl::initRoute(int index) {
+	auto e = this->routes[index];
+	Route const &route = *e.flash;
+	RouteState &routeState = *e.ram;
+	
+	TopicBuffer topic = route.getSrcTopic();
+	routeState.srcTopicId = subscribeTopic(topic.status(), QOS).topicId;
+	
+	topic = route.getDstTopic();
+	routeState.dstTopicId = registerTopic(topic.command()).topicId;
+}
+
+void RoomControl::copy(Route &dstRoute, RouteState &dstRouteState,
+	Route const &srcRoute, RouteState const &srcRouteState)
+{
+	// copy route
+	uint8_t *dst = reinterpret_cast<uint8_t *>(&dstRoute);
+	uint8_t const *src = reinterpret_cast<uint8_t const *>(&srcRoute);
+	array::copy(dst, dst + srcRoute.getFlashSize(), src);
+
+	// copy state
+	dstRouteState.srcTopicId = srcRouteState.srcTopicId;
+	addSubscriptionReference(dstRouteState.dstTopicId = srcRouteState.dstTopicId);
 }
 
 
@@ -2044,39 +1672,39 @@ void RoomControl::Command::setTopic(String topic, uint8_t *data, uint8_t *end) {
 	else if (newSize < oldSize)
 		array::erase(data, end, oldSize - newSize);
 
-	array::copy(topic.begin(), topic.end(), data);
+	array::copy(data, data + topic.length, topic.begin());
 	this->topicLength = newSize;
 }
 
 void RoomControl::publishValue(uint16_t topicId, Command::Type type, uint8_t const *value) {
+	StringBuffer<16> b;
 	switch (type) {
 	case Command::BUTTON:
-		this->buffer << "#!"[*value];
+		b += "#!"[*value];
 		break;
 	case Command::ROCKER:
-		this->buffer << "#+-"[*value];
+		b += "#+-"[*value];
 		break;
 	case Command::BINARY:
-		this->buffer << "01"[*value];
+		b += "01"[*value];
 		break;
 	case Command::VALUE8:
-		this->buffer << dec(*value);
+		b += dec(*value);
 		break;
 	case Command::PERCENTAGE:
-		this->buffer << flt(*value * 0.01f, 0, 2);
+		b += flt(*value * 0.01f, 0, 2);
 		break;
 	case Command::TEMPERATURE:
-		this->buffer << flt(8.0f + *value * 0.1f, 0, 1);
+		b += flt(8.0f + *value * 0.1f, 0, 1);
 		break;
 	case Command::COLOR_RGB:
-		this->buffer << "rgb(" << dec(value[0]) << ',' << dec(value[1]) << ',' << dec(value[2]) << ')';
+		b += "rgb(" + dec(value[0]) + ',' + dec(value[1]) + ',' + dec(value[2]) + ')';
 		break;
 	case Command::TYPE_COUNT:
 		;
 	}
 	
-	publish(topicId, this->buffer, 1);
-	this->buffer.clear();
+	publish(topicId, b, 1);
 }
 
 
@@ -2089,14 +1717,14 @@ int RoomControl::Timer::getFlashSize() const {
 		Command const &command = this->u.commands[i];
 		size += command.getFlashSize();
 	}
-	return intptr_t(&((Timer*)nullptr)->u.buffer[size]);
+	return getOffset(Timer, u.buffer[size]);
 }
 
 int RoomControl::Timer::getRamSize() const {
-	return intptr_t(&((TimerState*)nullptr)->topicIds[this->commandCount]);
+	return getOffset(TimerState, topicIds[this->commandCount]);
 }
 
-void RoomControl::registerTimer(int index) {
+void RoomControl::initTimer(int index) {
 	auto e = this->timers[index];
 	
 	Timer const *timer = e.flash;
@@ -2111,14 +1739,26 @@ void RoomControl::registerTimer(int index) {
 		int valueSize = command.getValueSize();
 
 		// get topic
-		String topic(String(data + valueSize, command.topicLength));
+		TopicBuffer topic = String(data + valueSize, command.topicLength);
 
 		// register topic (so that we can publish on timer event)
-		this->buffer << prefix << '/' << topic << "/cmd";
-		timerState->topicIds[commandIndex] = registerTopic(this->buffer).topicId;
-		this->buffer.clear();
+		timerState->topicIds[commandIndex] = registerTopic(topic.command()).topicId;
 		
 		data += valueSize + command.topicLength;
+	}
+}
+
+void RoomControl::copy(Timer &dstTimer, TimerState &dstTimerState,
+	Timer const &srcTimer, TimerState const &srcTimerState)
+{
+	// copy timer
+	uint8_t *dst = reinterpret_cast<uint8_t *>(&dstTimer);
+	uint8_t const *src = reinterpret_cast<uint8_t const *>(&srcTimer);
+	array::copy(dst, dst + srcTimer.getFlashSize(), src);
+
+	// copy state
+	for (int i = 0; i < srcTimer.commandCount; ++i) {
+		addSubscriptionReference(dstTimerState.topicIds[i] = srcTimerState.topicIds[i]);
 	}
 }
 
@@ -2159,4 +1799,36 @@ void RoomControl::onSecondElapsed() {
 			}
 		}
 	}
+}
+
+
+// Topic Selector
+// --------------
+
+void RoomControl::enterTopicSelector(String topic, bool onlyCommands, int index) {
+	this->selectedTopic = topic;
+
+	// check if current topic has the format <room>/<device>/<attribute>
+	if (this->selectedTopic.getElementCount() == 3) {
+		// remove attibute from topic
+		this->selectedTopic.removeLast();
+		this->topicDepth = 2;
+	} else {
+		// start at this room
+		this->selectedTopic = String(this->room[0].flash->name);
+		this->topicDepth = 1;
+	}
+
+	// only list attributes that have a command topic
+	this->onlyCommands = onlyCommands;
+
+	// subscribe to selected topic
+	this->selectedTopicId = subscribeTopic(this->selectedTopic.enumeration(), QOS).topicId;
+
+	// request enumeration of rooms, devices or attributes
+	publish(this->selectedTopicId, "?", QOS);
+
+	// enter topic selector menu
+	push(SELECT_TOPIC);
+	this->tempIndex = index;
 }

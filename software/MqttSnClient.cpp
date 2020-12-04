@@ -114,7 +114,7 @@ MqttSnClient::Result MqttSnClient::ping() {
 }
 
 MqttSnClient::MessageResult MqttSnClient::registerTopic(String topicName) {
-    if (topicName.empty() || topicName.length > MAX_MESSAGE_LENGTH - 5)
+    if (!isValid(topicName))
 		return {Result::INVALID_PARAMETER, 0};
     if (!isConnected())
 		return {Result::INVALID_STATE, 0};
@@ -152,7 +152,7 @@ MqttSnClient::Result MqttSnClient::publish(uint16_t topicId, const uint8_t *data
 	uint16_t msgId = getNextMsgId();
 
 	// allocate message, set msgId only if we expect a PUBACK which is when qos > 0
-	Message m = addSendMessage(6 + length, qos > 0 ? msgId : 0);
+	Message m = addSendMessage(6 + length, qos > 0 ? msgId : 0, waitForTopicId);
 	if (m.data == nullptr)
 		return Result::BUSY;
 
@@ -171,7 +171,7 @@ MqttSnClient::Result MqttSnClient::publish(uint16_t topicId, const uint8_t *data
 }
 
 MqttSnClient::MessageResult MqttSnClient::subscribeTopic(String topicFilter, int8_t qos) {
-	if (topicFilter.empty() || topicFilter.length > MAX_MESSAGE_LENGTH - 4)
+	if (!isValid(topicFilter))
 		return {Result::INVALID_PARAMETER, 0};
 	if (!isConnected())
 		return {Result::INVALID_STATE, 0};
@@ -198,7 +198,7 @@ MqttSnClient::MessageResult MqttSnClient::subscribeTopic(String topicFilter, int
 }
 
 MqttSnClient::Result MqttSnClient::unsubscribeTopic(String topicFilter) {
-	if (topicFilter.empty() || topicFilter.length > MAX_MESSAGE_LENGTH - 4)
+	if (!isValid(topicFilter))
 		return Result::INVALID_PARAMETER;
 	if (!isConnected())
 		return Result::INVALID_STATE;
@@ -357,7 +357,7 @@ void MqttSnClient::onUpReceived(uint8_t const *data, int length) {
 				mqttsn::ReturnCode returnCode = mqttsn::ReturnCode(data[5]);
 
 				if (returnCode == mqttsn::ReturnCode::ACCEPTED) {
-					// set topic id to publish messages that already published on this topic
+					// set topic id to PUBLISH messages that were already published on this topic
 					setTopicId(msgId, topicId);
 
 					// remove REGISTER message, data stays valid until methods are called on this or return to event loop
@@ -651,8 +651,8 @@ void MqttSnClient::setTopicId(uint16_t msgId, uint16_t topicId) {
 		MessageInfo &info = this->sendMessages[i];
 		uint8_t *data = this->sendBuffer + info.offset;
 		
-		// check if the message waits for the topic id and and currently has the msgId of the REGISTER message
-		// in the topicId field
+		// check if this PUBLISH message waits for the topic id
+		// if yes, it has the msgId of the REGISTER message in the topicId field
 		if (info.waitForTopicId && mqttsn::getUShort(data + 2) == msgId) {
 			info.waitForTopicId = false;
 			

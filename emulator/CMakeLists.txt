@@ -42,6 +42,9 @@ conan_basic_setup(TARGETS)
 # find Display, Poti and Temperature in gui subdirectory
 include_directories(gui)
 
+# set debug define
+add_definitions(-DDEBUG)
+
 set(GLAD
 	glad/glad.c
 	glad/glad.h
@@ -71,12 +74,15 @@ set(SOFTWARE
 	../software/RoomControl.hpp
 	../software/String.hpp
 	../software/StringBuffer.hpp
+	../software/StringOperators.hpp
 	../software/Storage.cpp
 	../software/Storage.hpp
 	../software/StringSet.hpp
 	../software/SystemTime.hpp
 	../software/tahoma_8pt.cpp
 	../software/tahoma_8pt.hpp
+	../software/TopicBuffer.cpp
+	../software/TopicBuffer.hpp
 	../software/util.hpp
 	#../software/Clock.hpp
 	#../software/EnOceanProtocol.cpp
@@ -128,6 +134,7 @@ set(EMULATOR
 )
 source_group(emulator FILES ${EMULATOR})
 
+# emulator executable
 add_executable(emulator
 	${GLAD}
 	${SOFTWARE}
@@ -139,6 +146,14 @@ include_directories(emulator
 		../software
 )
 conan_target_link_libraries(emulator)
+
+# install the emulator
+install(TARGETS emulator
+	LIBRARY DESTINATION lib
+	ARCHIVE DESTINATION lib
+	RUNTIME DESTINATION bin
+)
+
 
 
 # test broker
@@ -163,13 +178,6 @@ include_directories(testBroker
 )
 conan_target_link_libraries(testBroker)
 
-
-# install the emulator
-install(TARGETS emulator
-	LIBRARY DESTINATION lib
-	ARCHIVE DESTINATION lib
-	RUNTIME DESTINATION bin
-)
 
 
 # enable testing, adds test or RUN_TESTS target to run all tests

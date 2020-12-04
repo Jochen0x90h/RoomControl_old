@@ -9,6 +9,7 @@
 #include "StringBuffer.hpp"
 #include "Storage.hpp"
 #include "StringSet.hpp"
+#include "TopicBuffer.hpp"
 
 
 /**
@@ -16,6 +17,12 @@
  */
 class RoomControl : public MqttSnBroker, public Lin, public Clock, public Display, public Poti {
 public:
+	// maximum number of mqtt routes
+	static constexpr int MAX_ROUTE_COUNT = 32;
+	
+	// maximum number of timers
+	static constexpr int MAX_TIMER_COUNT = 32;
+
 
 	RoomControl();
 
@@ -92,9 +99,9 @@ public:
 		EDIT_LOCAL_DEVICE,
 		
 		// connections
-		CONNECTIONS,
-		EDIT_CONNECTION,
-		ADD_CONNECTION,
+		ROUTES,
+		EDIT_ROUTE,
+		ADD_ROUTE,
 
 		// timers
 		TIMERS,
@@ -108,7 +115,6 @@ public:
 		SELECT_TOPIC,
 	};
 	
-	static constexpr int MAX_TIMER_COUNT = 32;
 	
 	void updateMenu(int delta, bool activated);
 
@@ -120,7 +126,7 @@ public:
 
 	void menu(int delta, bool activated);
 
-	void label(const char* s);
+	void label(String s);
 
 	void line();
 	
@@ -348,15 +354,48 @@ public:
 	SystemTime lastUpdateTime;
 
 
-// Routing
-// -------
+// Routes
+// ------
 
-	struct Forward {
-		uint16_t srcId;
-		uint16_t dstId;
+	struct Route {
+		Route &operator =(const Route &) = delete;
+
+		/**
+		 * Returns the size in bytes needed to store the device configuration in flash
+		 * @return size in bytes
+		 */
+		int getFlashSize() const;
+
+		/**
+		 * Returns the size in bytes needed to store the device state in ram
+		 * @return size in bytes
+		 */
+		int getRamSize() const;
+	
+		String getSrcTopic() const {return {buffer, this->srcTopicLength};}
+		String getDstTopic() const {return {buffer + this->srcTopicLength, this->dstTopicLength};}
+
+		void setSrcTopic(String topic);
+		void setDstTopic(String topic);
+	
+		uint8_t srcTopicLength;
+		uint8_t dstTopicLength;
+		uint8_t buffer[TopicBuffer::MAX_TOPIC_LENGTH * 2];
+	};
+	
+	struct RouteState {
+		RouteState &operator =(const RouteState &) = delete;
+
+		uint16_t srcTopicId;
+		uint16_t dstTopicId;
 	};
 
-	Forward forwards[5];
+	// initialize route (register/subscribe mqtt topics)
+	void initRoute(int index);
+
+	void copy(Route &dstRoute, RouteState &dstRouteState, Route const &srcRoute, RouteState const &srcRouteState);
+
+	Storage::Array<Route, RouteState> routes;
 
 
 // Command
@@ -368,28 +407,27 @@ public:
 	 */
 	struct Command {
 		enum Type : uint8_t {
-			// button: pressed or release
+			// button: pressed or release (bt)
 			BUTTON,
 			
-			// rocker: up, down or release
+			// rocker: up, down or release (rc)
 			ROCKER,
 			
-			// binary: on or off
+			// binary: on or off (bn)
 			BINARY,
 			
-			// 8 bit value, 0-255
+			// 8 bit value, 0-255 (v8)
 			VALUE8,
 			
-			// 0-100%
+			// 0-100% (r1)
 			PERCENTAGE,
 			
-			// room temperature 8°C - 33.5°C
+			// room temperature 8°C - 33.5°C (rt)
 			TEMPERATURE,
 			
-			// color
+			// color rgb (cr)
 			COLOR_RGB,
 
-			// delete current command, must be last enum value
 			TYPE_COUNT,
 		};
 		
@@ -433,7 +471,11 @@ public:
 		static constexpr uint8_t SUNDAY = 0x40;
 
 		static constexpr int MAX_COMMAND_COUNT = 16;
-		static constexpr int BUFFER_SIZE = (sizeof(Command) + 32 + 8) * MAX_COMMAND_COUNT;
+		static constexpr int MAX_VALUE_SIZE = 4;
+		static constexpr int BUFFER_SIZE = (sizeof(Command) + MAX_VALUE_SIZE + TopicBuffer::MAX_TOPIC_LENGTH)
+			* MAX_COMMAND_COUNT;
+
+		Timer &operator =(const Timer &) = delete;
 
 		/**
 		 * Returns the size in bytes needed to store the device configuration in flash
@@ -447,6 +489,9 @@ public:
 		 */
 		int getRamSize() const;
 
+		uint8_t *begin() {return this->u.buffer + sizeof(Command) * this->commandCount;}
+		uint8_t const *begin() const {return this->u.buffer + sizeof(Command) * this->commandCount;}
+		uint8_t *end() {return this->u.buffer + BUFFER_SIZE;}
 
 		// timer time and weekday flags
 		ClockTime time;
@@ -463,11 +508,15 @@ public:
 	};
 	
 	struct TimerState {
+		TimerState &operator =(const TimerState &) = delete;
+
 		uint16_t topicIds[Timer::MAX_COMMAND_COUNT];
 	};
 	
-	// subscribe one timer to mqtt topics
-	void registerTimer(int index);
+	// initialize timer (register mqtt topics)
+	void initTimer(int index);
+
+	void copy(Timer &dstTimer, TimerState &dstTimerState, Timer const &srcTimer, TimerState const &srcTimerState);
 
 	Storage::Array<Timer, TimerState> timers;
 	using TimerElement = Storage::Element<Timer, TimerState>;
@@ -487,16 +536,24 @@ void onSecondElapsed() override;
 		Lin::Device linDevice;
 		LocalDevice localDevice;
 		Switch2Device switch2Device;
+		Route route;
 		Timer timer;
 	} temp;
-	void *tempState;
+	union {
+		DeviceState localDevice;
+		RouteState route;
+		TimerState timer;
+	} tempState;
 	int tempIndex;
 	
 
 // Topic Selector
 // --------------
 
-	StringBuffer<32> selectedTopic;
+	void enterTopicSelector(String topic, bool onlyCommands, int index);
+
+	// selected topic including space for prefix
+	TopicBuffer selectedTopic;
 	uint16_t selectedTopicId = 0;
 	uint16_t topicDepth;
 	StringSet<64, 64 * 16> topicSet;

@@ -1,55 +1,9 @@
 #pragma once
 
-#include "String.hpp"
+#include "StringOperators.hpp"
 #include "convert.hpp"
 #include "util.hpp"
 
-
-// decimal numbers
-template <typename T>
-struct Dec {
-	T value;
-	int digitCount;
-};
-template <typename T>
-Dec<T> dec(T value, int digitCount = 1) {
-	return {value, digitCount};
-}
-
-// binary coded decimal numbers
-template <typename T>
-struct Bcd {
-	T value;
-	int digitCount;
-};
-template <typename T>
-Bcd<T> bcd(T value, int digitCount = 1) {
-	return {value, digitCount};
-}
-
-// hexadecimal numbers
-template <typename T>
-struct Hex {
-	T value;
-	int digitCount;
-};
-template <typename T>
-Hex<T> hex(T value, int digitCount = sizeof(T) * 2) {
-	return {value, digitCount};
-}
-
-// floating point numbers
-struct Flt {
-	float value;
-	int digitCount;
-	int decimalCount;
-};
-constexpr Flt flt(float value, int decimalCount = 3) {
-	return {value, 1, decimalCount};
-}
-constexpr Flt flt(float value, int digitCount, int decimalCount) {
-	return {value, digitCount, decimalCount};
-}
 
 /**
  * String buffer with fixed maximum length
@@ -58,30 +12,40 @@ template <int L>
 class StringBuffer {
 public:
 	StringBuffer() : index(0) {}
-	
-	void clear() {this->index = 0;}
 
-	StringBuffer &operator <<(char ch) {
+	template <typename T>
+	StringBuffer(T str) : index(0) {
+		(*this) += str;
+	}
+
+	template <typename T>
+	StringBuffer &operator =(T str) {
+		this->index = 0;
+		return (*this) += str;
+	}
+
+	StringBuffer &operator +=(char ch) {
 		if (this->index < L)
 			this->data[this->index++] = ch;
+		#ifdef DEBUG
 		this->data[this->index] = 0;
+		#endif
 		return *this;
 	}
 
-	StringBuffer &operator <<(const String &str) {
-		int l = min(str.length, L - this->index);
-		char const *src = str.begin();
+	StringBuffer &operator +=(const String &str) {
 		char *dst = this->data + this->index;
-		for (int i = 0; i < l; ++i) {
-			dst[i] = src[i];
-		}
+		int l = min(str.length, L - this->index);
+		array::copy(dst, dst + l, str.begin());
 		this->index += l;
+		#ifdef DEBUG
 		this->data[this->index] = 0;
+		#endif
 		return *this;
 	}
 
 	template <typename T>
-	StringBuffer &operator <<(Dec<T> dec) {
+	StringBuffer &operator +=(Dec<T> dec) {
 		uint32_t value = dec.value;
 		if (dec.value < 0) {
 			if (this->index < L)
@@ -89,38 +53,38 @@ public:
 			value = -dec.value;
 		}
 		this->index += toString(value, this->data + this->index, L - this->index, dec.digitCount);
+		#ifdef DEBUG
 		this->data[this->index] = 0;
+		#endif
 		return *this;
 	}
 
-	StringBuffer &operator <<(int dec) {
-		return operator <<(Dec<int>{dec, 1});
-	}
+	//StringBuffer &operator +=(int dec) {
+	//	return operator +=(Dec<int>{dec, 1});
+	//}
 
 	template <typename T>
-	StringBuffer &operator <<(Bcd<T> bcd) {
-		int end = bcd.digitCount * 4;
-		while (end < 32 && bcd.value >> end != 0)
-			end += 4;
-		for (int i = end - 4; i >= 0 && this->index < L; i -= 4) {
-			this->data[this->index++] = '0' + ((bcd.value >> i) & 0xf);
-		}
-		this->data[this->index] = 0;
-		return *this;
-	}
-
-	template <typename T>
-	StringBuffer &operator <<(Hex<T> hex) {
+	StringBuffer &operator +=(Hex<T> hex) {
 		this->index += hexToString(hex.value, this->data + this->index, L - this->index, hex.digitCount);
+		#ifdef DEBUG
 		this->data[this->index] = 0;
+		#endif
 		return *this;
 	}
 	
-	StringBuffer &operator <<(Flt flt) {
+	StringBuffer &operator +=(Flt flt) {
 		this->index += toString(flt.value, this->data + this->index, L - this->index, flt.digitCount,
 			flt.decimalCount);
+		#ifdef DEBUG
 		this->data[this->index] = 0;
+		#endif
 		return *this;
+	}
+
+	template <typename A, typename B>
+	StringBuffer &operator +=(Plus<A, B> const &plus) {
+		(*this) += plus.a;
+		return (*this) += plus.b;
 	}
 
 	char operator [](int index) const {return this->data[index];}
@@ -133,10 +97,24 @@ public:
 		return {this->data, this->index};
 	}
 
-	bool empty() {return this->index == 0;}
-	int length() {return this->index;}
-	void setLength(int length) {this->index = length;}
+	void clear() {
+		this->index = 0;
+		#ifdef DEBUG
+		this->data[0] = 0;
+		#endif
+	}
 
+	bool empty() {return this->index == 0;}
+
+	int length() {return this->index;}
+
+	void setLength(int length) {
+		this->index = length;
+		#ifdef DEBUG
+		this->data[this->index] = 0;
+		#endif
+	}
+/*
 	int indexOf(char ch, int startIndex = 0) {
 		for (int i = startIndex; i < this->index; ++i) {
 			if (this->data[i] == ch)
@@ -154,9 +132,13 @@ public:
 		}
 		return -1;
 	}
-
+*/
 protected:
 
+	#ifdef DEBUG
 	char data[L + 1];
-	int index = 0;
+	#else
+	char data[L];
+	#endif
+	int index;
 };

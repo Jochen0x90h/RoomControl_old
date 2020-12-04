@@ -35,40 +35,23 @@ static void mouseCallback(GLFWwindow* window, int button, int action, int mods) 
     }*/
 }
 
-ClockTime timerData[] = {
-	makeClockTime(0, 10, 00),
-	makeClockTime(0, 22, 41)
+constexpr String routeData[][2] = {
+	{"room/00000001/a", "room/00000001/x"},
+	{"room/00000001/b0", "room/00000001/y0"},
+	{"room/00000001/b1", "room/00000001/y1"},
+	{"room/00000002/a", "room/00000002/x"},
+	{"room/00000002/b0", "room/00000002/y"}
 };
 
-/*
-Event eventData[] = {
-	{0xfef3ac9b, 0x10, {2, {{0, Device::ON}, {0, Device::OFF}}}}, // bottom left
-	{0xfef3ac9b, 0x30, {2, {{1, Device::OFF}, {0, Action::SCENARIO}}}}, // top left
-	{0xfef3ac9b, 0x50, {2, {{4, Device::STOP}, {4, Device::MOVE}}}}, // bottom right
-	{0xfef3ac9b, 0x70, {2, {{5, Device::CLOSED}, {5, Device::OPEN}}}}, // top right
+struct TimerData {
+	ClockTime time;
+	String topic;
+};
+constexpr TimerData timerData[] = {
+	{makeClockTime(1, 10, 00), "room/00000001/x"},
+	{makeClockTime(2, 22, 41), "room/00000001/y0"}
 };
 
-Timer timerData[] = {
-	{Clock::time(22, 41), Timer::SUNDAY, {1, {{2, Device::ON}}}},
-	{Clock::time(10, 0), Timer::MONDAY, {1, {{3, Device::ON}}}},
-};
-
-Scenario scenarioData[] = {
-	{0, "Lights On", {4, {{0, Device::ON}, {1, Device::ON}, {2, Device::ON}, {3, Device::ON}}}},
-};
-
-Device deviceData[] = {
-	{0, Device::Type::SWITCH, "Light1", 500, 5000, 0}, // delay 0.5s, timeout for on state 3s
-	{1, Device::Type::SWITCH, "Light2", 0, 0, 1},
-	{2, Device::Type::SWITCH, "Light3", 0, 0, 2},
-	{3, Device::Type::SWITCH, "Light4", 0, 0, 3},
-	{4, Device::Type::BLIND, "Blind1", 2000, 0, 4},
-	{5, Device::Type::BLIND, "Blind2", 2000, 0, 6},
-	{6, Device::Type::BLIND, "Blind3", 2000, 0, 8},
-	{7, Device::Type::BLIND, "Blind4", 2000, 0, 10},
-	{8, Device::Type::HANDLE, "Handle1", 0, 0, 0},
-};
-*/
 
 /**
  * Pass path to EnOcean device as argument
@@ -146,15 +129,21 @@ int main(int argc, const char **argv) {
 	RoomControl roomControl;
 
 	// add test data
-	for (ClockTime time : timerData) {
+	for (auto r : routeData) {
+		RoomControl::Route route = {};
+		route.setSrcTopic(r[0]);
+		route.setDstTopic(r[1]);
+		roomControl.routes.write(roomControl.routes.size(), &route);
+	}
+	for (auto t : timerData) {
 		RoomControl::Timer timer = {};
-		timer.time = time;
+		timer.time = t.time;
 		timer.commandCount = 1;
-		timer.u.commands[0].type = RoomControl::Command::ROCKER;
-		timer.u.commands[0].topicLength = 15;
-		uint8_t *data = timer.u.buffer + sizeof(RoomControl::Command);
+		RoomControl::Command &command = timer.u.commands[0];
+		uint8_t *data = timer.begin();
+		command.type = RoomControl::Command::BINARY;
 		data[0] = 1;
-		memcpy(data + 1, "room/00000001/x", 15);
+		command.setTopic(t.topic, data + 1, timer.end());
 		roomControl.timers.write(roomControl.timers.size(), &timer);
 	}
 
@@ -217,136 +206,6 @@ int main(int argc, const char **argv) {
 		}
 
 	}
-/*
-	// default initialize arrays if empty
-	if (system.events.size() == 0) {
-		system.events.assign(eventData);
-		system.timers.assign(timerData);
-		system.scenarios.assign(scenarioData);
-		system.devices.assign(deviceData);
-
-		for (int i = 0; i < system.devices.size(); ++i) {
-			system.deviceStates[i].init(system.devices[i]);
-		}
-	}
-*/
-
-/*
-	LayoutManager layoutManager;
-	float y = 0.1f;
-
-	// display
-	layoutManager.add(&display);
-	display.setRect(0.3f, y, 0.4f, 0.2f);
-
-	y += 0.3f;
-
-	// poti
-	layoutManager.add(&system.poti);
-	system.poti.setRect(0.2f, y, 0.25f, 0.25f);
-
-	// motion detector
-	layoutManager.add(&system.motionDetector);
-	system.motionDetector.setRect(0.55f, y + 0.05, 0.15f, 0.15f);
-
-	//Poti poti2;
-	//layoutManager.add(&poti2);
-	//poti2.setRect(0.55f, y, 0.25f, 0.25f);
-
-	// temperature
-	layoutManager.add(&system.temperature);
-	system.temperature.setRect(0.85f, y, 0.1, 0.25f);
-
-	y += 0.3f;
-
-	// devices
-	std::vector<std::unique_ptr<DeviceWidget>> devices;
-
-	// main loop
-	int frameCount = 0;
-	auto start = std::chrono::steady_clock::now();
-	while (!glfwWindowShouldClose(window)) {
-		auto frameStart = std::chrono::steady_clock::now();
-
-		// get frame buffer size
-		int width, height;
-		glfwGetFramebufferSize(window, &width, &height);
-
-		// mouse
-		layoutManager.doMouse(window);
-		
-		// update system
-		system.update();
-
-		// update display
-		display.update(system.bitmap);
-
-		// check if device widgets still match system devices
-		int deviceCount = system.devices.size();
-		bool newDeviceWidgets = devices.size() != deviceCount;
-		if (!newDeviceWidgets) {
-			for (int i = 0; i < deviceCount; ++i) {
-				auto type = system.devices[i].type;
-				if (Light::isCompatible(type)) {
-					newDeviceWidgets |= dynamic_cast<Light*>(devices[i].get()) == nullptr;
-				} else if (Blind::isCompatible(type)) {
-					newDeviceWidgets |= dynamic_cast<Blind*>(devices[i].get()) == nullptr;
-				} else {
-					newDeviceWidgets |= devices[i] != nullptr;
-				}
-			}
-		}
-		if (newDeviceWidgets) {
-			// remove old widgets
-			devices.resize(deviceCount);
-
-			// create new widgets
-			const float step = 1.0f / 8.0f;
-			const float size = 0.1f;
-			float x = (step - size) * 0.5f;
-			for (int i = 0; i < deviceCount; ++i) {
-				auto type = system.devices[i].type;
-				if (Light::isCompatible(type)) {
-					devices[i] = std::make_unique<Light>(layoutManager);
-					devices[i]->setRect(x, y, size, size);
-					x += step;
-				} else if (Blind::isCompatible(type)) {
-					devices[i] = std::make_unique<Blind>(layoutManager);
-					devices[i]->setRect(x, y, size, size * 2);
-					x += step;
-				} else {
-					devices[i] = nullptr;
-				}
-			}
-		}
-		
-		// transfer device states to widgets
-		for (int i = 0; i < deviceCount; ++i) {
-			if (devices[i] != nullptr)
-				devices[i]->setState(system.deviceStates[i]);
-		}
-
-		// draw emulator on screen
-		glViewport(0, 0, width, height);
-		glClear(GL_COLOR_BUFFER_BIT);
-		layoutManager.draw();
-		
-		glfwSwapBuffers(window);
-		glfwPollEvents();
-
-		auto now = std::chrono::steady_clock::now();
-		std::this_thread::sleep_for(std::chrono::milliseconds(9) - (now - frameStart));
-		
-		// show frames per second
-		++frameCount;
-		auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - start);
-		if (duration.count() > 1000) {
-			//std::cout << frameCount * 1000 / duration.count() << "fps" << std::endl;
-			frameCount = 0;
-			start = std::chrono::steady_clock::now();
-		}
-	}
-*/
 
 	// write flash
 	std::ofstream os("flash.bin", std::ios::binary);

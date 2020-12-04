@@ -280,8 +280,7 @@ public:
 
 	/**
 	 * Unsubscribe from a topic. On success, onUnsubscribed() is called
-	 * @param msgId message id obtained by getNextMsgId() topic name (path without wildcards)
-	 * @param topic topic filter (path that may contain wildcards)
+	 * @param topicFilter topic filter (path that may contain wildcards)
 	 * @return result containing success status and message id
 	 */
 	Result unsubscribeTopic(String topicFilter);
@@ -289,6 +288,12 @@ public:
 	//Result updateWillTopic();
 	//Result updateWillMessage();
 	
+	/**
+	 * Check if a topic is valid
+	 * @return ture if topic is valid
+	 */
+	static bool isValid(String topic) {return uint32_t(topic.length - 1) <= uint32_t(MAX_MESSAGE_LENGTH - 5 - 1);}
+
 protected:
 	
 // user callbacks

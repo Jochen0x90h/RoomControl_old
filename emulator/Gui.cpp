@@ -455,9 +455,8 @@ int Gui::temperatureSensor(int id) {
 	// temperature display	
 	Bitmap<TEMPERATURE_BITMAP_WIDTH, 16> bitmap;
 	bitmap.clear();
-	StringBuffer<8> buffer;
 	int temperature = ((widget->value >> 14) & 0x1ff);
-	buffer << temperature / 10 << '.' << temperature % 10 << " oC";
+	StringBuffer<8> buffer = dec(temperature / 10) + '.' + dec(temperature % 10) + " oC";
 	bitmap.drawText(2, 0, tahoma_8pt, buffer);
 
 	toDisplayBuffer(bitmap, this->displayBuffer);

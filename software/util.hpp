@@ -24,13 +24,6 @@ template <typename T, int N>
 constexpr T const *end(const T (&array)[N]) {return array + N;}
 
 template <typename T>
-/*void insert(T *array, int size, int index, int count = 1) {
-	int i = size;
-	while (i > index + count) {
-		--i;
-		array[i] = array[i - count];
-	}
-}*/
 void insert(T *array, T *end, int count = 1) {
 	T *it = end - count;
 	while (it > array) {
@@ -40,29 +33,28 @@ void insert(T *array, T *end, int count = 1) {
 }
 
 template <typename T>
-/*void erase(T *array, int size, int index, int count = 1) {
-	for (int i = index + count; i < size; ++i) {
-		array[i - count] = array[i];
-	}
-}
-*/
 void erase(T *array, T *end, int count = 1) {
 	for (T *it = array + count; it < end; ++it) {
 		it[-count] = it[0];
 	}
 }
 
-template <typename ForwardIt, typename T>
-void fill(ForwardIt first, ForwardIt last, const T &value) {
-	for (ForwardIt it = first; it < last; ++it) {
+template <typename OutputIt, typename T>
+void fill(OutputIt first, OutputIt last, const T &value) {
+	for (OutputIt it = first; it < last; ++it) {
 		*it = value;
 	}
 }
 
-template <typename InputIt, typename OutputIt>
-void copy(InputIt first, InputIt last, OutputIt dst) {
+template <typename OutputIt, typename InputIt>
+/*void copy(InputIt first, InputIt last, OutputIt dst) {
 	for (InputIt src = first; src != last; ++src, ++dst) {
 		*dst = *src;
+	}
+}*/
+void copy(OutputIt first, OutputIt last, InputIt src) {
+	for (OutputIt it = first; it < last; ++it, ++src) {
+		*it = *src;
 	}
 }
 
