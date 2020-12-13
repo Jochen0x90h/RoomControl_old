@@ -3,15 +3,12 @@ cmake_minimum_required(VERSION 3.9)
 # set project
 project(Emulator)
 
-# add custom module finders
-#set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
-
 #set(CMAKE_VERBOSE_MAKEFILE ON)
 
 # use C++17 standard by default
 set(CMAKE_CXX_STANDARD 17)
 
-# suppress warning for own s and ms literal operators that are used instad of std::chrono
+# suppress warning for own s and ms literal operators that are used instad of those in std::chrono
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-user-defined-literals")
 else()
@@ -35,15 +32,13 @@ endif()
 
 # conan dependencies
 include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
-conan_basic_setup(TARGETS)
-
-
-
-# find Display, Poti and Temperature in gui subdirectory
-include_directories(gui)
+conan_basic_setup(TARGETS KEEP_RPATHS)
 
 # set debug define
 add_definitions(-DDEBUG)
+
+# strip unised dylibs
+#add_link_options(-dead_strip_dylibs)
 
 set(GLAD
 	glad/glad.c
@@ -62,6 +57,7 @@ set(SOFTWARE
 	../software/convert.cpp
 	../software/convert.hpp
 	../software/defines.hpp
+	../software/Device.hpp
 	../software/Font.cpp
 	../software/Font.hpp
 	../software/Flash.hpp
@@ -84,20 +80,6 @@ set(SOFTWARE
 	../software/TopicBuffer.cpp
 	../software/TopicBuffer.hpp
 	../software/util.hpp
-	#../software/Clock.hpp
-	#../software/EnOceanProtocol.cpp
-	#../software/EnOceanProtocol.hpp
-	#../software/Action.cpp
-	#../software/Action.hpp
-	#../software/Event.hpp
-	#../software/Timer.hpp
-	#../software/Scenario.hpp
-	#../software/Device.cpp
-	#../software/Device.hpp
-	#../software/DeviceState.cpp
-	#../software/DeviceState.hpp
-	#../software/System.cpp
-	#../software/System.hpp
 )
 source_group(software FILES ${SOFTWARE})
 
@@ -107,30 +89,25 @@ set(EMULATOR
 	config.hpp
 	global.cpp
 	global.hpp
-	SystemTimer.cpp
-	SystemTimer.hpp
+	Bus.cpp
+	Bus.hpp
 	Clock.cpp
 	Clock.hpp
-	#Udp6.cpp
-	#Udp6.hpp
-	Network.cpp
-	Network.hpp
-	Lin.cpp
-	Lin.hpp
 	Display.cpp
 	Display.hpp
+	Flash.cpp
+	Gui.cpp
+	Gui.hpp
 	Inputs.cpp
 	Inputs.hpp
+	Network.cpp
+	Network.hpp
 	Outputs.cpp
 	Outputs.hpp
 	Poti.cpp
 	Poti.hpp
-	Flash.cpp
-	Gui.cpp
-	Gui.hpp
-	#Ticker.hpp
-	#Serial.cpp
-	#Serial.hpp
+	SystemTimer.cpp
+	SystemTimer.hpp
 )
 source_group(emulator FILES ${EMULATOR})
 

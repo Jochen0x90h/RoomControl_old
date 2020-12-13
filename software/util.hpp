@@ -47,11 +47,6 @@ void fill(OutputIt first, OutputIt last, const T &value) {
 }
 
 template <typename OutputIt, typename InputIt>
-/*void copy(InputIt first, InputIt last, OutputIt dst) {
-	for (InputIt src = first; src != last; ++src, ++dst) {
-		*dst = *src;
-	}
-}*/
 void copy(OutputIt first, OutputIt last, InputIt src) {
 	for (OutputIt it = first; it < last; ++it, ++src) {
 		*it = *src;
@@ -67,3 +62,7 @@ constexpr void copy(const char (&src)[N], char (&dst)[M]) {
 		dst[i] = src[i];
 }
 */
+
+constexpr int align4(int size) {
+	return (size + 3) & ~3;
+}

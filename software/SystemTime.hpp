@@ -4,7 +4,7 @@
 
 
 /**
- * System duration, 1/1024 seconds
+ * System duration, internal unit is 1/1024 second
  */
 struct SystemDuration {
 	int32_t value;
@@ -42,6 +42,10 @@ constexpr SystemDuration operator -(SystemDuration a, SystemDuration b) {
 	return {a.value - b.value};
 }
 
+constexpr SystemDuration operator *(int a, SystemDuration b) {
+	return {a * b.value};
+}
+
 constexpr SystemDuration operator *(SystemDuration a, int b) {
 	return {a.value * b};
 }
@@ -54,12 +58,24 @@ constexpr SystemDuration operator /(SystemDuration a, int b) {
 	return {a.value / b};
 }
 
+struct DurationDiv {
+	SystemDuration a;
+	SystemDuration b;
+	
+	operator int () {return a.value / b.value;}
+	operator float () {return float(a.value) / float(b.value);}
+};
+
 /**
- * Divide to durations
- * @return quotient as float
+ * Divide two durations
+ * @return quotient can be assigned to int or float
  */
-constexpr float operator /(SystemDuration a, SystemDuration b) {
-	return float(a.value) / float(b.value);
+constexpr DurationDiv operator /(SystemDuration a, SystemDuration b) {
+	return {a.value, b.value};
+}
+
+constexpr SystemDuration operator %(SystemDuration a, SystemDuration b) {
+	return {a.value % b.value};
 }
 
 constexpr bool operator <(SystemDuration a, SystemDuration b) {
@@ -81,7 +97,7 @@ constexpr bool operator >=(SystemDuration a, SystemDuration b) {
 
 
 /**
- * System time, 1/1024 seconds
+ * System time, internal unit is 1/1024 second
  */
 struct SystemTime {
 	uint32_t value;
@@ -128,16 +144,47 @@ constexpr bool operator >=(SystemTime a, SystemTime b) {
 
 constexpr SystemTime min(SystemTime x, SystemTime y) {return {x.value < y.value ? x.value : y.value};}
 
+/**
+ * Suffix for milliseconds, e.g. 100ms
+ */
 constexpr SystemDuration operator "" ms(unsigned long long ms) {
 	return {int32_t((ms * 128 + 62) / 125)};
 }
 
+/**
+ * Suffix for seconds, e.g. 5s
+ */
 constexpr SystemDuration operator "" s(unsigned long long s) {
 	return {int32_t(s * 1024)};
 }
 
+/**
+ * Suffix for minutes, e.g. 3min
+ */
+constexpr SystemDuration operator "" min(unsigned long long s) {
+	return {int32_t(s * 60 * 1024)};
+}
+
+/**
+ * Suffix for hours, e.g. 8h
+ */
+constexpr SystemDuration operator "" h(unsigned long long s) {
+	return {int32_t(s * 60 * 60 * 1024)};
+}
 
 
+struct SystemDuration16 {
+	uint16_t value;
+	
+	constexpr SystemDuration16 &operator =(SystemDuration d) {
+		this->value = uint16_t(d.value);
+		return *this;
+	}
+
+	operator SystemDuration () {
+		return {this->value};
+	}
+};
 
 struct SystemTime16 {
 	uint16_t value;
@@ -147,10 +194,8 @@ struct SystemTime16 {
 		return *this;
 	}
 	
-	constexpr SystemTime expand(SystemTime t) {
+	SystemTime expand(SystemTime t) {
 		int carry = int(uint16_t(t.value) < this->value);
 		return {(t.value & 0xffff0000) + this->value - (carry << 16)};
 	}
 };
-
-

@@ -1,127 +1,103 @@
 #pragma once
 
-#include "String.hpp"
-#include "Array.hpp"
-#include "Action.hpp"
+
+/**
+ * Device id type
+ */
+using DeviceId = uint32_t;
 
 
-struct Device {
-	enum class Type : uint8_t {
-		/**
-		 * Generic switch for light or power plug
-		 */
-		SWITCH,
-
-		/**
-		 * Light, same as switch, only for visualization
-		 */
-		LIGHT,
-
-		/**
-		 * Dimmer
-		 */
-		DIMMER,
-		
-		/**
-		 * Window blind or roller shutter
-		 */
-		BLIND,
-
-		/**
-		 * Handle such as window or terrace door handle with multiple states
-		 */
-		HANDLE,
-	};
-
-	struct State {
-		const char *name;
-		uint8_t state;
-	};
+/**
+ * Type of device endpoint such as button, relay or temperature sensor
+ */
+ enum class EndpointType : uint8_t {
+	// generic binary sensor with two states
+	BINARY_SENSOR = 1,
 	
-	struct Transition {
-		uint8_t fromState;
-		uint8_t toState;
-	};
-
-	// generic states
-	static const uint8_t OFF = 0;
-	static const uint8_t ON = 100;
-	static const uint8_t CLOSE = 0;
-	static const uint8_t CLOSED = 0;
-	static const uint8_t OPEN = 100;
-	static const uint8_t LOCKED = 101;
-
-	// dimmer/blind states
-	static const uint8_t LIGHTEN = 102;
-	static const uint8_t DARKEN = 103;
-	static const uint8_t DIM = 104;
-	static const uint8_t STOP = 105;
-	static const uint8_t RAISE = LIGHTEN;
-	static const uint8_t LOWER = DARKEN;
-	static const uint8_t MOVE = DIM;
-
-	// window handle states
-	static const uint8_t TILT = 50;
-	static const uint8_t SHUT = 102; // closed or locked
-	static const uint8_t UNSHUT = 103; // open or tilt
-	static const uint8_t UNLOCKED = 104; // closed, open or tilt
-
-	// heating states
-	static const uint8_t NIGHT = 50;
-	static const uint8_t ACTIVE = 101; // currently heating
-
-	// placeholder for a value from 0 - 100
-	static const uint8_t VALUE = 0xff;
-
-
-	// unique id of the device, used by events, timers, scenarios and conditions
-	uint8_t id;
+	// button, returns to released state when not pressed
+	BUTTON = 2,
 	
-	// type of actor
-	Type type;
-
-	// name
-	char name[16];
+	// switch with two stable states
+	SWITCH = 3,
 	
-	// configuration values
-	uint16_t value1;
-	uint16_t value2;
+/*
+	// two binary sensors
+	BINARY_SENSOR_2 = 4,
 
-	// output, either local relay or enocean node id (input node id for handle)
-	uint32_t output;
+	// two buttons
+	BUTTON_2 = 5,
 
-	/**
-	 * Get all states of the device
-	 */
-	Array<State> getStates() const;
+	// two switches
+	SWITCH_2 = 6,
+*/
+	// rocker with two sides, returns to released state when not pressed
+	ROCKER = 7,
 
-	/**
-	 * Get all states that can be set by an action on a button or timer event
-	 */
-	Array<State> getActionStates() const;
+/*
+	// four binary sensors
+	BINARY_SENSOR_4 = 8,
 
-	/**
-	 * Get the name of the given state
-	 */
-	String getStateName(uint8_t state) const;
+	// two buttons
+	BUTTON_4 = 9,
 
-	/**
-	 * Get possible state transitions of the device
-	 */
-	Array<Transition> getTransitions() const;
+	// four switches
+	SWITCH_4 = 10,
 
-	// get transition speed for dimmer or blind
-	int getSpeed() const {return this->value1;}
-
-	// get delay time in milliseconds
-	int getDelay() const {return this->value1;}
+	// two rockers
+	ROCKER_2 = 11,
+*/
 	
-	// get timeout time in milliseconds
-	int getTimeout() const {return this->value2;}
+	// generic relay with two states
+	RELAY = 20,
+	
+	// light, only on/off
+	LIGHT = 21,
 
-	// actions that execute on this device if conditions apply
-	// note: must be last in struct!
-	Actions actions;
+/*
+	// two relays
+	RELAY_2 = 22,
 
-	int byteSize() const {return offsetof(Device, actions) + this->actions.byteSize();}
-};
+	// two lights
+	LIGHT_2 = 23,
+*/
+	// two interlocked relays for blind, only one can be on
+	BLIND = 24,
+	
+/*
+	// four relays
+	RELAY_4 = 25,
+
+	// four lights
+	LIGHT_4 = 26,
+
+	// two blinds
+	BLIND_2 = 27,
+*/
+
+	// temperature sensor (16 bit value, 1/20 Kelvin)
+	TEMPERATURE_SENSOR = 30,
+	
+	// air pressure sensor
+	AIR_PRESSURE_SENSOR = 31,
+	
+	// air humidity sensor
+	AIR_HUMIDITY_SENSOR = 32,
+	
+	// air voc (volatile organic compounds) content sensor
+	AIR_VOC_SENSOR = 33,
+
+
+	// brightness sensor
+	BRIGHTNESS_SENSOR = 40,
+	
+	// motion detector
+	MOTION_DETECTOR = 41,
+
+
+	// active energy counter of an electicity meter
+	ACTIVE_ENERGY_COUNTER = 50,
+	
+	// active power measured by an electricity meter
+	ACTIVE_POWER_SENSOR = 51,
+ };
+ 

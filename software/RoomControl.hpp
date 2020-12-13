@@ -1,7 +1,7 @@
 #pragma once
 
 #include "MqttSnBroker.hpp"
-#include "Lin.hpp"
+#include "Bus.hpp"
 #include "Clock.hpp"
 #include "Display.hpp"
 #include "Poti.hpp"
@@ -10,12 +10,13 @@
 #include "Storage.hpp"
 #include "StringSet.hpp"
 #include "TopicBuffer.hpp"
+#include "Device.hpp"
 
 
 /**
  * Main room control class that inherits platform dependent (hardware or emulator) components
  */
-class RoomControl : public MqttSnBroker, public Lin, public Clock, public Display, public Poti {
+class RoomControl : public MqttSnBroker, public Bus, public Clock, public Display, public Poti {
 public:
 	// maximum number of mqtt routes
 	static constexpr int MAX_ROUTE_COUNT = 32;
@@ -55,14 +56,14 @@ public:
 	void onPublished(uint16_t topicId, uint8_t const *data, int length, int8_t qos, bool retain) override;
 	
 
-// Lin
+// Bus
 // ---
 
-	void onLinReady() override;
+	void onBusReady() override;
 
-	void onLinReceived(uint32_t deviceId, uint8_t const *data, int length) override;
+	void onBusReceived(uint8_t endpointId, uint8_t const *data, int length) override;
 
-	void onLinSent() override;
+	void onBusSent() override;
 
 	
 // SystemTimer
@@ -95,8 +96,13 @@ public:
 		MAIN,
 		
 		// local devices connected by lin bus
-		LOCAL_DEVICES,
-		EDIT_LOCAL_DEVICE,
+		BUS_DEVICES,
+		EDIT_BUS_DEVICE,
+		ADD_BUS_DEVICE,
+		
+		// device component
+		EDIT_COMPONENT,
+		ADD_COMPONENT,
 		
 		// connections
 		ROUTES,
@@ -144,9 +150,7 @@ public:
 	 */
 	int getEdit(int editCount = 1);
 
-	/*bool isEditEntry(int entryIndex) {
-		return this->selected == entryIndex && this->edit > 0;
-	}*/
+	//bool isAnyEditFinished() {return this->editFinished;}
 
 	void push(State state);
 	
@@ -187,6 +191,7 @@ public:
 
 	// edit value of selected element
 	int edit = 0;
+	//bool editFinished = false;
 
 	// toast data
 	SystemTime toastTime;
@@ -222,12 +227,18 @@ public:
 	};
 
 	struct RoomState {
-		// topic id for list of rooms in house (<prefix>)
+		// topic id for list of rooms in house (topic: enum)
 		uint16_t houseTopicId;
 
-		// topic id for list of devices in room (<prefix>/<room>)
+		// topic id for list of devices in room (topic: enum/<room>)
 		uint16_t roomTopicId;
 	};
+
+	String getRoomName() {return this->room[0].flash->name;}
+
+	// subscribe everything to mqtt topics
+	void subscribeAll();
+
 
 	Storage::Array<Room, RoomState> room;
 	using RoomElement = Storage::Element<Room, RoomState>;
@@ -236,8 +247,129 @@ public:
 // Devices
 // -------
 	
-	struct LocalDevice : public Lin::Device {
-	
+	struct Device {
+		static constexpr int MAX_COMPONENT_COUNT = 32;
+		static constexpr int BUFFER_SIZE = MAX_COMPONENT_COUNT * 16;
+		
+		// device component
+		struct Component {
+			static constexpr int CLASS_FLAGS = 0;
+			
+			// component type. Note: Keep elementInfos array in sync
+			enum Type : uint8_t {
+				// button with pressed and released states
+				BUTTON,
+
+				// button that sends a "stop" instead of "release" message when held for a configured duration
+				HOLD_BUTTON,
+
+				// button that goes to pressed state only if it is held down for a configured duration
+				DELAY_BUTTON,
+
+				// switch with on and off states
+				SWITCH,
+
+				// rocker switch with up, down and released states
+				ROCKER,
+
+				// rocker that sends a "stop" instead of "release" message when held for a configured duration
+				HOLD_ROCKER,
+
+				// relay with on and off states
+				RELAY,
+
+				// ralay that automatically switches off after some duration
+				TIME_RELAY,
+					   
+				// blind
+				BLIND,
+
+				// venetian blind
+				//VENETIAN_BLIND,
+
+				// celsius temperature sensor
+				CELSIUS,
+				
+				// fahrenheit temperature sensor
+				FAHRENHEIT,
+				
+			};
+
+			// get name of this component (which is used as topic component)
+			Plus<String, Dec<uint8_t>> getName() const;
+
+			// set first valid component type and clear data
+			void init(EndpointType endpointType/*, uint8_t endpointIndex, uint8_t componentIndex*/);
+
+			// rotate component type to the next valid type
+			void rotateType(EndpointType endpointType, int delta);
+
+			// check if given class is compatible to the actual class of the component
+			bool checkClass(uint8_t classFlags) const;
+
+			template <typename T>
+			bool is() const {
+				// check if class is compatible
+				return T::CLASS_FLAGS == 0 || checkClass(T::CLASS_FLAGS);
+			}
+
+			template <typename T>
+			T const &cast() const {
+				// check if class is compatible
+				assert(is<T>());
+
+				// cast and assert at compile time that T inherits Device::Component
+				T const *ptr = reinterpret_cast<T const *>(this);
+				Component const *base = ptr;
+				return *ptr;
+			}
+
+			template <typename T>
+			T &cast() {
+				// check if class is compatible
+				assert(is<T>());
+
+				// cast and assert at compile time that T inherits Device::Component
+				T *ptr = reinterpret_cast<T *>(this);
+				Component *base = ptr;
+				return *ptr;
+			}
+
+
+			// element type
+			Type type;
+
+			// index of device endpoint this component is connected to
+			uint8_t endpointIndex;
+			
+			// index of this component
+			//uint8_t componentIndex;
+			uint8_t nameIndex;
+			
+			// index of element, used e.g. by arrays of binary or ternary sensors
+			uint8_t elementIndex;
+		};
+
+		struct TimeComponent : public Component {
+			static constexpr int CLASS_FLAGS = Component::CLASS_FLAGS | 1;
+
+			SystemDuration duration;
+		};
+
+		using Button = Component;
+		using Switch = Component;
+		using Rocker = Component;
+		using HoldButton = TimeComponent;
+		using DelayButton = TimeComponent;
+		using HoldRocker = TimeComponent;
+		using Relay = Component;
+		using TimeRelay = TimeComponent;
+		using Blind = TimeComponent;
+		using TemperatureSensor = Component;
+
+
+		Device &operator =(const Device &) = delete;
+
 		/**
 		 * Returns the size in bytes needed to store the device configuration in flash
 		 * @return size in bytes
@@ -254,99 +386,209 @@ public:
 		 * Returns the name of the device
 		 * @return device name
 		 */
-		String getName() const;
-		
+		String getName() const {return this->name;}
+
 		/**
 		 * Set the name of the device
-		 * @paran name device name
+		 * @param name device name
 		 */
 		void setName(String name);
-		
+
 		/**
-		 * Assigns another device to this device by copying the number of bytes given by getFlashSize().
-		 * The actual type must be the same or enough space following to accomodate all data
+		 * get a unique name index for the given type
 		 */
-		void operator =(LocalDevice const &device);
+		uint8_t getNameIndex(Component::Type type, int skipComponentIndex) const;
+		
+
+		// device id
+		DeviceId deviceId;
+
+		// device name
+		char name[15];
+
+		// number of components of this device
+		uint8_t componentCount;
+				
+		// buffer contains the components
+		uint32_t buffer[BUFFER_SIZE / 4];
 	};
 	
 	struct DeviceState {
-		// topic id for list of attributes in device (<prefix>/<room>/<device>)
-		uint16_t deviceTopicId;
+		static constexpr int BUFFER_SIZE = 16 * Device::MAX_COMPONENT_COUNT;
+
+		// base struct for component state
+		struct Component {
+			static constexpr int CLASS_FLAGS = 0;
+
+			// check if given class is compatible to the actual class of the component
+			bool checkClass(Device::Component::Type type, uint8_t classFlags) const;
+
+			template <typename T>
+			bool is(Device::Component const &component) const {
+				// check if class is compatible
+				return T::CLASS_FLAGS == 0 || checkClass(component.type, T::CLASS_FLAGS);
+			}
+			
+			template <typename T>
+			T &cast() {
+				// cast and assert at compile time that T inherits DeviceState::Component
+				T *ptr = reinterpret_cast<T *>(this);
+				Component *base = ptr;
+				return *ptr;
+			}
+
+			// general purpose flags
+			uint8_t flags;
+			
+			// endpoint id of button/rocker
+			uint8_t endpointId;
+
+			// topic for publishing the status
+			uint16_t statusTopicId;
+		};
 		
-		// topic id for room command (<prefix>/<room>/<device>/cmd)
-		//uint16_t deviceCommand;
-	};
-	
-	struct Switch2Device : public LocalDevice {
-		struct Relays {
-			// relay/light: on duration, blind: duration from fully open to fully closed
-			SystemDuration duration1;
-			
-			// blind: rocker long press duration
-			SystemDuration duration2;
-		};
-		Relays r[2];
+		using Button = Component;
+		using Switch = Component;
+		using Rocker = Component;
 
-		// device name
-		char name[16];
-	};
-	
-	struct Switch2State : public DeviceState {
-		// switches A and B
-		struct Switches {
-			// topic id's for publishing the state
-			uint16_t stateId1;
-			uint16_t stateId2;
+		struct TimeComponent : public Component {
+			static constexpr int CLASS_FLAGS = Component::CLASS_FLAGS | 1;
+
+			SystemTime timeout;
 		};
 
-		// relays X and Y
-		struct Relays {
-			// topic id's for publishing the state
-			uint16_t stateId1;
-			uint16_t stateId2;
+		using HoldButton = TimeComponent;
+		using DelayButton = TimeComponent;
+		using HoldRocker = TimeComponent;
+		
+		// element that can receive commands
+		struct CommandComponent : public Component {
+			static constexpr int CLASS_FLAGS = Component::CLASS_FLAGS | 2;
 
-			// topic id's for receiving commands
-			uint16_t commandId1;
-			uint16_t commandId2;
+			// topic receiving commands
+			uint16_t commandTopicId;
+		};
 
-			// relay/light: on timeout, blind: move timeout
-			SystemTime timeout1;
+		struct Relay : public CommandComponent {
+			// flag indicating the relay state
+			static constexpr int RELAY = 1;
+
+			// flag indicating if a controlling button or rocker is currently pressed
+			static constexpr int PRESSED = 0x80;
+		};
+
+		struct TimeRelay : public Relay {
+			static constexpr int CLASS_FLAGS = Relay::CLASS_FLAGS | 4;
+
+			// timeout after which the relay goes to off state
+			SystemTime timeout;
+		};
+
+		struct Blind : public TimeRelay {
+			static constexpr int CLASS_FLAGS = TimeRelay::CLASS_FLAGS | 8;
+
+			// flag indicating the relay state
+			static constexpr int RELAY_UP = 1;
+			static constexpr int RELAY_DOWN = 2;
+			static constexpr int RELAYS = 3;
 			
-			// blind: rocker long press timeout
-			SystemTime timeout2;
-			
-			// blind: current position measured as time
+			// flag indicating the last direcion
+			static constexpr int DIRECTIION_UP = 4;
+
+			// current position measured as time
 			SystemDuration duration;
 		};
-				
-		// current state of switches
-		uint8_t switches;
-		
-		// current state of relays
-		uint8_t relays;
 
-		// track prssed state of relay commands to filter out double messages
-		uint8_t pressed;
+		using TemperatureSensor = Component;
 
-		// additional state for controlling the relays
-		Relays r[2];
 
-		// additional state for switches
-		Switches s[2];
+		DeviceState &operator =(const DeviceState &) = delete;
+
+		// topic id for list of attributes in device (topic: enum/<room>/<device>)
+		uint16_t deviceTopicId;
+
+		// buffer contains the components
+		uint32_t buffer[BUFFER_SIZE / 4];
 	};
 	
-	// subscribe devices to mqtt topics
-	void subscribeDevices();
+	// iterator for device elements
+	struct ComponentIterator {
+		ComponentIterator(Device const &device, DeviceState &deviceState)
+			: device(device)
+			, flash(device.buffer)
+			, ram(deviceState.buffer)
+		{}
+		
+		Device::Component const &getComponent() const {
+			return *reinterpret_cast<Device::Component const *>(this->flash);
+		}
+
+		DeviceState::Component &getState() {
+			return *reinterpret_cast<DeviceState::Component *>(this->ram);
+		}
+
+		// returns true if a group of components that are associated to the same endpoint ends
+		bool next();
+
+		bool atEnd() {return this->componentIndex == this->device.componentCount;}
+
+		Device const &device;
+		int componentIndex = 0;
+		uint32_t const *flash;
+		uint32_t *ram;
+	};
+	
+	// editor for device elements
+	struct ComponentEditor {
+		ComponentEditor(Device &device, DeviceState &deviceState)
+			: device(device), deviceState(deviceState)
+			, flash(device.buffer)
+			, ram(deviceState.buffer)
+		{}
+		
+		Device::Component &getComponent() {
+			return *reinterpret_cast<Device::Component *>(this->flash);
+		}
+
+		DeviceState::Component &getState() {
+			return *reinterpret_cast<DeviceState::Component *>(this->ram);
+		}
+
+		Device::Component &insert(Device::Component::Type type);
+
+		void changeType(Device::Component::Type type);
+
+		void next();
+
+		bool atEnd() {return this->componentIndex == this->device.componentCount;}
+
+
+		Device &device;
+		DeviceState &deviceState;
+		int componentIndex = 0;
+		uint32_t *flash;
+		uint32_t *ram;
+	};
 	
 	// subscribe one device to mqtt topics
 	void subscribeDevice(int index);
 
 	// update time dependent state of devices (e.g. blind position)
 	SystemTime updateDevices(SystemTime time);
-	
-	Storage::Array<LocalDevice, DeviceState> localDevices;
-	using LocalDeviceElement = Storage::Element<LocalDevice, DeviceState>;
-	
+
+	// check compatibility between device endpoint and device element
+	static bool isCompatible(EndpointType endpointType/*, int componentIndex*/, Device::Component::Type type);
+
+	// clone device and its state (subscribe command topics)
+	void clone(Device &dstDevice, DeviceState &dstDeviceState, Device const &srcDevice, DeviceState const &srcDeviceState);
+
+	// destroy device (unsubscribe command topics)
+	void destroy(Device const &device, DeviceState &deviceState);
+
+
+	Storage::Array<Device, DeviceState> devices;
+	using DeviceElement = Storage::Element<Device, DeviceState>;
+
 	// next time for reporting changing values
 	SystemTime nextReportTime;
 	
@@ -390,10 +632,11 @@ public:
 		uint16_t dstTopicId;
 	};
 
-	// initialize route (register/subscribe mqtt topics)
-	void initRoute(int index);
+	// register/subscribe route to mqtt topics
+	void subscribeRoute(int index);
 
-	void copy(Route &dstRoute, RouteState &dstRouteState, Route const &srcRoute, RouteState const &srcRouteState);
+	// copy route and its state
+	void clone(Route &dstRoute, RouteState &dstRouteState, Route const &srcRoute, RouteState const &srcRouteState);
 
 	Storage::Array<Route, RouteState> routes;
 
@@ -407,25 +650,25 @@ public:
 	 */
 	struct Command {
 		enum Type : uint8_t {
-			// button: pressed or release (bt)
+			// button: pressed or release
 			BUTTON,
 			
-			// rocker: up, down or release (rc)
-			ROCKER,
+			// switch: on or off
+			SWITCH,
+
+			// rocker: up, down or release
+			ROCKER,			
 			
-			// binary: on or off (bn)
-			BINARY,
-			
-			// 8 bit value, 0-255 (v8)
+			// 8 bit value, 0-255
 			VALUE8,
 			
-			// 0-100% (r1)
+			// 0-100%
 			PERCENTAGE,
 			
-			// room temperature 8°C - 33.5°C (rt)
+			// room temperature 8°C - 33.5°C
 			TEMPERATURE,
 			
-			// color rgb (cr)
+			// color rgb
 			COLOR_RGB,
 
 			TYPE_COUNT,
@@ -444,7 +687,7 @@ public:
 		int getFlashSize() const {return this->topicLength + getValueSize();}
 		
 		void changeType(int delta, uint8_t *data, uint8_t *end);
-		
+				
 		void setTopic(String topic, uint8_t *data, uint8_t *end);
 		
 		// type of value that is published on the topic
@@ -489,8 +732,15 @@ public:
 		 */
 		int getRamSize() const;
 
-		uint8_t *begin() {return this->u.buffer + sizeof(Command) * this->commandCount;}
-		uint8_t const *begin() const {return this->u.buffer + sizeof(Command) * this->commandCount;}
+		/**
+		 * Begin of buffer behind the list of commands containing the value and topic
+		 */
+		uint8_t *begin() {return this->u.buffer + this->commandCount * sizeof(Command);}
+		uint8_t const *begin() const {return this->u.buffer + this->commandCount * sizeof(Command);}
+		
+		/**
+		 * End of buffer
+		 */
 		uint8_t *end() {return this->u.buffer + BUFFER_SIZE;}
 
 		// timer time and weekday flags
@@ -513,10 +763,10 @@ public:
 		uint16_t topicIds[Timer::MAX_COMMAND_COUNT];
 	};
 	
-	// initialize timer (register mqtt topics)
-	void initTimer(int index);
+	// register timer mqtt topics
+	void subscribeTimer(int index);
 
-	void copy(Timer &dstTimer, TimerState &dstTimerState, Timer const &srcTimer, TimerState const &srcTimerState);
+	void clone(Timer &dstTimer, TimerState &dstTimerState, Timer const &srcTimer, TimerState const &srcTimerState);
 
 	Storage::Array<Timer, TimerState> timers;
 	using TimerElement = Storage::Element<Timer, TimerState>;
@@ -525,26 +775,31 @@ public:
 // Clock
 // -----
 
-void onSecondElapsed() override;
+	void onSecondElapsed() override;
 
 
-// Temp
-// ----
+// Temporary variables for editing via menu
+// ----------------------------------------
 
+	// first level
 	union {
 		Room room;
-		Lin::Device linDevice;
-		LocalDevice localDevice;
-		Switch2Device switch2Device;
+		Device device;
 		Route route;
 		Timer timer;
 	} temp;
 	union {
-		DeviceState localDevice;
+		DeviceState device;
 		RouteState route;
 		TimerState timer;
 	} tempState;
+	
+	// second level
 	int tempIndex;
+	union {
+		Device::Component component;
+		Device::TimeComponent timeComponent;
+	} temp2;
 	
 
 // Topic Selector

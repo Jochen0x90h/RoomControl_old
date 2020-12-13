@@ -22,28 +22,35 @@ MqttSnBroker::MqttSnBroker() {
 }
 
 
-MqttSnBroker::TopicResult MqttSnBroker::registerTopic(String topicName) {
-	if (!isValid(topicName))
-		return {0, Result::INVALID_PARAMETER};
+MqttSnBroker::Result MqttSnBroker::registerTopic(uint16_t &topicId, String topicName) {
+	if (!isValid(topicName)) {
+		assert(false);
+		return Result::INVALID_PARAMETER;
+	}
 	
 	// get or add topic by name
-	uint16_t topicId = getTopicId(topicName);
-	if (topicId == 0)
-		return {0, Result::OUT_OF_MEMORY};
+	uint16_t newTopicId = getTopicId(topicName);
+	if (newTopicId == 0) {
+		assert(false);
+		return Result::OUT_OF_MEMORY;
+	}
+	
+	// assert that both topic ids are the same
+	assert(topicId == 0 || newTopicId == topicId);
 
 	Result result = Result::OK;
-	TopicInfo &topic = getTopic(topicId);
+	TopicInfo &topic = getTopic(newTopicId);
 		
 	// check if we need to register the topic at the gateway
 	if (MqttSnClient::isConnected() && topic.gatewayTopicId == 0) {
 		MessageResult r = MqttSnClient::registerTopic(topicName);
-		topic.gatewayTopicId = r.msgId; // store message id in topic id until REGACK arrives (in client)
-		topic.gatewayQos = -1; // mark as waiting for topic id
-		//topic.waitForTopicId = true;
+		topic.gatewayTopicId = r.msgId; // store message id in topic id until client receives REGACK
+		topic.gatewayQos = -1; // mark as waiting for topic id from gateway
 		result = r.result;
 	}
+	topicId = newTopicId;
 std::cout << "registerTopic " << topicName << " " << topicId << std::endl;
-	return {topicId, result};
+	return result;
 }
 
 MqttSnBroker::Result MqttSnBroker::publish(uint16_t topicId, uint8_t const *data, int length, int8_t qos, bool retain) {
@@ -64,7 +71,7 @@ MqttSnBroker::Result MqttSnBroker::publish(uint16_t topicId, uint8_t const *data
 
 	return Result::OK;
 }
-
+/*
 MqttSnBroker::TopicResult MqttSnBroker::subscribeTopic(String topicFilter, int8_t qos) {
 	if (!isValid(topicFilter))
 		return {0, Result::INVALID_PARAMETER};
@@ -92,17 +99,60 @@ MqttSnBroker::TopicResult MqttSnBroker::subscribeTopic(String topicFilter, int8_
 std::cout << "subscribeTopic " << topicFilter << " " << topicId << " (" << int(topic.subscribeCount) << ")" << std::endl;
 	return {topicId, result};
 }
-
-MqttSnBroker::Result MqttSnBroker::unsubscribeTopic(String topicFilter) {
-	if (!isValid(topicFilter))
+*/
+MqttSnBroker::Result MqttSnBroker::subscribeTopic(uint16_t &topicId, String topicFilter, int8_t qos) {
+	if (!isValid(topicFilter)) {
+		assert(false);
 		return Result::INVALID_PARAMETER;
+	}
+
+	// get or add topic by name
+	uint16_t newTopicId = getTopicId(topicFilter);
+	if (newTopicId == 0) {
+		assert(false);
+		return Result::OUT_OF_MEMORY;
+	}
+
+	Result result = Result::OK;
+	TopicInfo &topic = getTopic(newTopicId);
+	
+	// check if we need to subscribe topic at the gateway
+	if (MqttSnClient::isConnected() && qos > topic.getMaxQos())
+		result = MqttSnClient::subscribeTopic(topicFilter, qos).result;
+
+	//todo
+	// check if there is a retained message for this topic
+		
+	// set quality of service of subscription (overwrites previous value)
+	topic.setQos(LOCAL_CLIENT_INDEX, qos);
+	
+	// increment subscription counter
+	if (topicId == 0)
+		++topic.subscribeCount;
+	else
+		assert(topicId == newTopicId);
+	topicId = newTopicId;
+std::cout << "subscribeTopic " << topicFilter << " " << topicId << " (" << int(topic.subscribeCount) << ")" << std::endl;
+	return result;
+}
+
+MqttSnBroker::Result MqttSnBroker::unsubscribeTopic(uint16_t &topicId, String topicFilter) {
+	if (!isValid(topicFilter)) {
+		assert(false);
+		return Result::INVALID_PARAMETER;
+	}
 
 	// get topic by name
-	uint16_t topicId = getTopicId(topicFilter, false);
-	if (topicId == 0)
+	uint16_t newTopicId = getTopicId(topicFilter, false);
+	if (newTopicId == 0) {
+		assert(false);
 		return Result::INVALID_PARAMETER;
+	}
 
-	TopicInfo &topic = getTopic(topicId);
+	// assert that both topic ids are the same
+	assert(topicId == newTopicId);
+	
+	TopicInfo &topic = getTopic(newTopicId);
 	
 	// check subscription counter
 	if (--topic.subscribeCount == 0) {
@@ -124,6 +174,7 @@ MqttSnBroker::Result MqttSnBroker::unsubscribeTopic(String topicFilter) {
 		}
 	}
 std::cout << "unsubscribeTopic " << topicFilter << " " << topicId << " (" << int(topic.subscribeCount) << ")" << std::endl;
+	topicId = 0;
 	return Result::OK;
 }
 
@@ -1059,7 +1110,7 @@ void MqttSnBroker::sendPublish(uint16_t topicId, TopicInfo *topic, uint8_t const
 
 	// publish to local client if it has subscribed to the topic
 	int8_t localQos = topic->getQos(LOCAL_CLIENT_INDEX);
-	if (localQos >= 0 && length > 0)
+	if (localQos >= 0)
 		onPublished(topicId, data, length, min(qos, localQos), retain);
 }
 

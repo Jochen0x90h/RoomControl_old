@@ -108,31 +108,13 @@ public:
 
 	int length() {return this->index;}
 
-	void setLength(int length) {
+	void resize(int length) {
 		this->index = length;
 		#ifdef DEBUG
 		this->data[this->index] = 0;
 		#endif
 	}
-/*
-	int indexOf(char ch, int startIndex = 0) {
-		for (int i = startIndex; i < this->index; ++i) {
-			if (this->data[i] == ch)
-				return i;
-		}
-		return -1;
-	}
 
-	int lastIndexOf(char ch) {
-		int i = this->index;
-		while (i > 0) {
-			--i;
-			if (this->data[i] == ch)
-				return i;
-		}
-		return -1;
-	}
-*/
 protected:
 
 	#ifdef DEBUG
@@ -140,5 +122,5 @@ protected:
 	#else
 	char data[L];
 	#endif
-	int index;
+	uint8_t index;
 };

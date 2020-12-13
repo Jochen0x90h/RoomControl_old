@@ -36,14 +36,32 @@ public:
 	std::pair<int, bool> poti(int id);
 
 	/**
+	 * Add a button with pressed/release states
+	 * @return button state or -1 when no event
+	 */
+	int button(int id);
+
+	/**
+	 * Add a switch with on/off states
+	 * @return switch state or -1 when no event
+	 */
+	int switcher(int id);
+
+	/**
+	 * Add a rocker with up/down/release states
+	 * @return rocker state or -1 when no event
+	 */
+	int rocker(int id);
+
+	/**
 	 * Add a virtual double rocker switch like PTM 216Z
 	 * @return button state or -1 when no event
 	 */
-	int doubleRocker(int id);
+	//int doubleRocker(int id);
 
 	/**
 	 * Add a virtual temperature sensor
-	 * @return current temperature in 1/10 °C
+	 * @return temperature in 1/20 Kelvin or -1 when no change
 	 */
 	int temperatureSensor(int id);
 
@@ -155,7 +173,7 @@ protected:
 	class PotiWidget : public Widget {
 	public:
 	
-		PotiWidget(int defaultValue = 0) : value(defaultValue), lastValue(defaultValue) {}
+		PotiWidget(int defaultValue = 0) : value(defaultValue), lastValue(0) {}
 		~PotiWidget() override;
 	
 		void touch(bool first, float x, float y) override;
@@ -175,15 +193,55 @@ protected:
 	};
 	
 	
-	// double rocker
-	Render *doubleRockerRender;
+	// button
+	class ButtonWidget : public Widget {
+	public:
+	
+		~ButtonWidget() override;
+	
+		void touch(bool first, float x, float y) override;
+		void release() override;
+
+		int state = 0;
+		int lastState = 0;
+	};
+
+
+	// switch
+	class SwitchWidget : public Widget {
+	public:
+	
+		~SwitchWidget() override;
+	
+		void touch(bool first, float x, float y) override;
+		void release() override;
+
+		int state = 0;
+		int lastState = 0;
+	};
+
+
+	// rocker
+	class RockerWidget : public Widget {
+	public:
+	
+		~RockerWidget() override;
+	
+		void touch(bool first, float x, float y) override;
+		void release() override;
+
+		int state = 0;
+		int lastState = 0;
+	};
+
+	Render *rockerRender;
 
 	// uniform locations
-	GLint doubleRockerA0;
-	GLint doubleRockerA1;
-	GLint doubleRockerB0;
-	GLint doubleRockerB1;
+	GLint rockerUp;
+	GLint rockerDown;
 
+/*
+	// double rocker
 	class DoubleRockerWidget : public Widget {
 	public:
 	
@@ -196,6 +254,14 @@ protected:
 		int lastState = 0;
 	};
 
+	Render *doubleRockerRender;
+
+	// uniform locations
+	GLint doubleRockerA0;
+	GLint doubleRockerA1;
+	GLint doubleRockerB0;
+	GLint doubleRockerB1;
+*/
 
 	// temperature sensor
 	GLuint temperatureTexture;

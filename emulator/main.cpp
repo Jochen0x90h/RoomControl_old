@@ -35,12 +35,52 @@ static void mouseCallback(GLFWwindow* window, int button, int action, int mods) 
     }*/
 }
 
+struct DeviceData {
+	uint32_t deviceId;
+	String name;
+	
+	struct Component {
+		RoomControl::Device::Component::Type type;
+		uint8_t endpointIndex;
+		uint8_t elementIndex;
+		SystemDuration duration;
+	};
+	
+	int componentCount;
+	Component components[8];
+};
+
+// matches to emulated devices in Bus.cpp
+constexpr DeviceData deviceData[] = {
+	{0x00000001, "switch1", 7, {
+		{RoomControl::Device::Component::ROCKER, 0, 0},
+		{RoomControl::Device::Component::BUTTON, 1, 0},
+		{RoomControl::Device::Component::DELAY_BUTTON, 1, 0, 2s},
+		{RoomControl::Device::Component::SWITCH, 1, 1},
+		{RoomControl::Device::Component::RELAY, 2, 0},
+		{RoomControl::Device::Component::TIME_RELAY, 3, 0, 3s},
+		{RoomControl::Device::Component::RELAY, 4, 0}
+	}},
+	{0x00000002, "switch2", 6, {
+		{RoomControl::Device::Component::ROCKER, 0, 0},
+		{RoomControl::Device::Component::BUTTON, 1, 0},
+		{RoomControl::Device::Component::HOLD_ROCKER, 2, 0, 2s},
+		{RoomControl::Device::Component::HOLD_BUTTON, 3, 0, 2s},
+		{RoomControl::Device::Component::BLIND, 4, 0, 6500ms},
+		{RoomControl::Device::Component::BLIND, 5, 0, 6500ms}}},
+	{0x00000003, "tempsensor", 1, {
+		{RoomControl::Device::Component::CELSIUS, 0, 0}}},
+};
+
 constexpr String routeData[][2] = {
-	{"room/00000001/a", "room/00000001/x"},
-	{"room/00000001/b0", "room/00000001/y0"},
-	{"room/00000001/b1", "room/00000001/y1"},
-	{"room/00000002/a", "room/00000002/x"},
-	{"room/00000002/b0", "room/00000002/y"}
+	{"room/switch1/rk0", "room/switch1/rl0"},
+	{"room/switch1/bt0", "room/switch1/rl1"},
+	{"room/switch1/bt1", "room/switch1/rl2"},
+	{"room/switch1/sw0", "room/switch1/rl2"},
+	{"room/switch2/rk0", "room/switch2/bl0"},
+	{"room/switch2/rk1", "room/switch2/bl0"},
+	{"room/switch2/bt0", "room/switch2/bl1"},
+	{"room/switch2/bt1", "room/switch2/bl1"}
 };
 
 struct TimerData {
@@ -54,28 +94,10 @@ constexpr TimerData timerData[] = {
 
 
 /**
- * Pass path to EnOcean device as argument
- * MacOS: /dev/tty.usbserial-FT3PMLOR
- * Linux: /dev/ttyUSB0 (add yourself to the dialout group: sudo usermod -a -G dialout $USER)
+ * Emulator main, start without parameters
  */
 int main(int argc, const char **argv) {
 
-/*	if (argc <= 1) {
-		std::cout << "usage: emulator <device>" << std::endl;
-	#if __APPLE__
-		std::cout << "example: emulator /dev/tty.usbserial-FT3PMLOR" << std::endl;
-	#elif __linux__
-		std::cout << "example: emulator /dev/ttyUSB0" << std::endl;
-	#endif
-		return 1;
-	}
-*/
-/*
-	std::cout << "sizeof(Event): " << sizeof(Event) << " byteSize(): " << eventData[0].byteSize() << std::endl;
-	std::cout << "sizeof(Timer): " << sizeof(Timer) << " byteSize(): " << timerData[0].byteSize() << std::endl;
-	std::cout << "sizeof(Scenario): " << sizeof(Scenario) << " byteSize(): " << scenarioData[0].byteSize() << std::endl;
-	std::cout << "sizeof(Device): " << sizeof(Device) << " byteSize(): " << deviceData[0].byteSize() << std::endl;
-*/
 	// erase emulated flash
 	memset(const_cast<uint8_t*>(Flash::getAddress(0)), 0xff, FLASH_PAGE_COUNT * FLASH_PAGE_SIZE);
 
@@ -128,7 +150,58 @@ int main(int argc, const char **argv) {
 	// the room control application
 	RoomControl roomControl;
 
+
+	void (RoomControl::*member)(uint8_t endpointId, uint8_t const *data, int length);
+	member = &RoomControl::busSend;
+	std::cout << sizeof(member) << std::endl;
+	//(*this.*member)(...);
+
+	std::function<void (uint8_t, uint8_t const *, int)> func = [&roomControl] (uint8_t endpointId, uint8_t const *data, int length) {roomControl.busSend(endpointId, data, length);};
+	std::cout << sizeof(func) << std::endl;
+
 	// add test data
+	for (auto d : deviceData) {
+		RoomControl::Device device = {};
+		RoomControl::DeviceState deviceState = {};
+		device.deviceId = d.deviceId;
+		device.setName(d.name);
+		
+		// add components
+		RoomControl::ComponentEditor editor(device, deviceState);
+		//int lastEndpointIndex = 0;
+		//int componentIndex = 0;
+		for (int i = 0; i < d.componentCount; ++i) {
+			auto &componentData = d.components[i];
+			auto type = componentData.type;
+			auto &component = editor.insert(type);
+
+			//auto endpointIndex = componentData.endpointIndex;
+			/*if (endpointIndex != lastEndpointIndex) {
+				lastEndpointIndex = endpointIndex;
+				componentIndex = 0;
+			}*/
+			component.endpointIndex = componentData.endpointIndex;
+			//component.componentIndex = componentIndex++;
+			component.nameIndex = device.getNameIndex(type, i);
+			component.elementIndex = componentData.elementIndex;
+			
+			if (component.is<RoomControl::Device::TimeComponent>()) {
+				auto &timeComponent = component.cast<RoomControl::Device::TimeComponent>();
+				timeComponent.duration = componentData.duration;
+			}
+			
+			editor.next();
+		}
+		roomControl.devices.write(roomControl.devices.size(), &device);
+	
+		// debug print devices
+		auto e = roomControl.devices[roomControl.devices.size() - 1];
+		for (RoomControl::ComponentIterator it(*e.flash, *e.ram); !it.atEnd(); it.next()) {
+			auto &component = it.getComponent();
+			StringBuffer<8> b = component.getName();
+			std::cout << b << std::endl;
+		}
+	}
 	for (auto r : routeData) {
 		RoomControl::Route route = {};
 		route.setSrcTopic(r[0]);
@@ -141,11 +214,12 @@ int main(int argc, const char **argv) {
 		timer.commandCount = 1;
 		RoomControl::Command &command = timer.u.commands[0];
 		uint8_t *data = timer.begin();
-		command.type = RoomControl::Command::BINARY;
+		command.type = RoomControl::Command::SWITCH;
 		data[0] = 1;
 		command.setTopic(t.topic, data + 1, timer.end());
 		roomControl.timers.write(roomControl.timers.size(), &timer);
 	}
+	roomControl.subscribeAll();
 
 	// main loop
 	int frameCount = 0;
@@ -184,7 +258,7 @@ int main(int argc, const char **argv) {
 			roomControl.onPotiChanged(poti.first, poti.second);
 			
 			// temperature sensor
-			gui.temperatureSensor(id++);
+			//gui.temperatureSensor(id++);
 
 			gui.newLine();
 						

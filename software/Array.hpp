@@ -15,11 +15,11 @@ struct Array {
 	template <int N>
 	constexpr Array(T const (&array)[N]) : data(array), length(N) {}
 
-	constexpr Array(T const *data, int length) : data(data), length(length) {}
+	Array(T const *data, int length) : data(data), length(length) {}
 
 	bool empty() {return this->length <= 0;}
 
-	constexpr T const &operator [](int index) const {
+	T const &operator [](int index) const {
 		assert(index >= 0 && index < this->length);
 		return this->data[index];
 	}

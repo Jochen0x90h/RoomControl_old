@@ -47,7 +47,7 @@ GLuint createShader(GLenum type, char const *code)
 }
 
 template <int W, int H>
-void toDisplayBuffer(Bitmap<W, H> const &bitmap, uint8_t *buffer) {
+void convert(uint8_t *buffer, Bitmap<W, H> const &bitmap) {
 	uint8_t const foreground = 255;
 	uint8_t const background = 48;
 	int width = W;;
@@ -160,6 +160,48 @@ void Gui::PotiWidget::release() {
 }
 
 
+// Gui::ButtonWidget
+
+Gui::ButtonWidget::~ButtonWidget() {
+}
+
+void Gui::ButtonWidget::touch(bool first, float x, float y) {
+	this->state = 1;
+}
+
+void Gui::ButtonWidget::release() {
+	this->state = 0;
+}
+
+
+// Gui::SwitchWidget
+
+Gui::SwitchWidget::~SwitchWidget() {
+}
+
+void Gui::SwitchWidget::touch(bool first, float x, float y) {
+	this->state = y < 0.5f ? 0 : 1;
+}
+
+void Gui::SwitchWidget::release() {
+	// stay in current state
+}
+
+
+// Gui::RockerWidget
+
+Gui::RockerWidget::~RockerWidget() {
+}
+
+void Gui::RockerWidget::touch(bool first, float x, float y) {
+	this->state = y < 0.5f ? 1 : 2;
+}
+
+void Gui::RockerWidget::release() {
+	this->state = 0;
+}
+
+/*
 // Gui::DoubleRockerWidget
 
 Gui::DoubleRockerWidget::~DoubleRockerWidget() {
@@ -172,7 +214,7 @@ void Gui::DoubleRockerWidget::touch(bool first, float x, float y) {
 void Gui::DoubleRockerWidget::release() {
 	this->state = 0;
 }
-
+*/
 
 // Gui
 
@@ -218,6 +260,19 @@ Gui::Gui() {
 	this->potiValue = this->potiRender->getUniformLocation("value");
 	this->potiState = this->potiRender->getUniformLocation("state");
 
+	// rocker switch
+	this->rockerRender = new Render("#version 330\n"
+		"uniform float up;\n"
+		"uniform float down;\n"
+		"in vec2 xy;\n"
+		"out vec4 pixel;\n"
+		"void main() {\n"
+			"float state = xy.y < 0.5 ? up : down;\n"
+			"pixel = vec4(state, state, state, 1);\n"
+		"}\n");
+	this->rockerUp = this->rockerRender->getUniformLocation("up");
+	this->rockerDown = this->rockerRender->getUniformLocation("down");
+/*
 	// double rocker switch
 	this->doubleRockerRender = new Render("#version 330\n"
 		"uniform float a0;\n"
@@ -234,7 +289,7 @@ Gui::Gui() {
 	this->doubleRockerA1 = this->doubleRockerRender->getUniformLocation("a1");
 	this->doubleRockerB0 = this->doubleRockerRender->getUniformLocation("b0");
 	this->doubleRockerB1 = this->doubleRockerRender->getUniformLocation("b1");
-
+*/
 	// temperature sensor
 	this->temperatureTexture = createTexture(TEMPERATURE_BITMAP_WIDTH, tahoma_8pt.height);
 
@@ -352,22 +407,9 @@ void Gui::display(Bitmap<Display::WIDTH, Display::HEIGHT> const &bitmap) {
 	float const w = 0.4f;
 	float const h = 0.2f;
 
-	toDisplayBuffer(bitmap, this->displayBuffer);
-/*
-	int width = Display::WIDTH;
-	int height = Display::HEIGHT;
-	for (int j = 0; j < height; ++j) {
-		uint8_t *b = &this->displayBuffer[width * (height - 1 - j)];
-		for (int i = 0; i < width; ++i) {
-			// data layout: rows of 8 pixels where each byte describes a column in each row
-			// this would be the layout of a 16x16 display where each '|' is one byte
-			// ||||||||||||||||
-			// ||||||||||||||||
-			bool bit = (bitmap.data[i + width * (j >> 3)] & (1 << (j & 7))) != 0;
-			b[i] = bit ? 255 : 48;
-		}
-	}
-*/
+	// convert bitmap to 8 bit display buffer
+	convert(this->displayBuffer, bitmap);
+
 	// set state
 	this->displayRender->setState(this->x, this->y, w, h);
 	glBindTexture(GL_TEXTURE_2D, this->displayTexture);
@@ -410,6 +452,75 @@ std::pair<int, bool> Gui::poti(int id) {
 	return {delta, activated};
 }
 
+int Gui::button(int id) {
+	float const w = 0.1f;
+	float const h = 0.1f;
+
+	auto widget = getWidget<ButtonWidget>(id, w, h);
+
+	// set state
+	this->rockerRender->setState(this->x, this->y, w, h);
+	glUniform1f(this->rockerUp, widget->state == 1 ? 1.0f : 0.6f);
+	glUniform1f(this->rockerDown, widget->state == 1 ? 1.0f : 0.6f);
+
+	// draw and reset state
+	this->rockerRender->drawAndResetState();
+	
+	next(w, h);
+
+	int state = widget->state;
+	bool activated = state != widget->lastState;
+	widget->lastState = state;
+
+	return activated ? state : -1;
+}
+
+int Gui::switcher(int id) {
+	float const w = 0.1f;
+	float const h = 0.1f;
+
+	auto widget = getWidget<SwitchWidget>(id, w, h);
+
+	// set state
+	this->rockerRender->setState(this->x, this->y, w, h);
+	glUniform1f(this->rockerUp, widget->state == 0 ? 1.0f : 0.6f);
+	glUniform1f(this->rockerDown, widget->state == 1 ? 1.0f : 0.7f);
+
+	// draw and reset state
+	this->rockerRender->drawAndResetState();
+	
+	next(w, h);
+
+	int state = widget->state;
+	bool activated = state != widget->lastState;
+	widget->lastState = state;
+
+	return activated ? state : -1;
+}
+
+int Gui::rocker(int id) {
+	float const w = 0.1f;
+	float const h = 0.1f;
+
+	auto widget = getWidget<RockerWidget>(id, w, h);
+
+	// set state
+	this->rockerRender->setState(this->x, this->y, w, h);
+	glUniform1f(this->rockerUp, widget->state & 1 ? 1.0f : 0.6f);
+	glUniform1f(this->rockerDown, widget->state & 2 ? 1.0f : 0.7f);
+
+	// draw and reset state
+	this->rockerRender->drawAndResetState();
+	
+	next(w, h);
+
+	int state = widget->state;
+	bool activated = state != widget->lastState;
+	widget->lastState = state;
+
+	return activated ? state : -1;
+}
+/*
 int Gui::doubleRocker(int id) {
 	float const w = 0.1f;
 	float const h = 0.1f;
@@ -434,7 +545,7 @@ int Gui::doubleRocker(int id) {
 
 	return activated ? state : -1;
 }
-
+*/
 int Gui::temperatureSensor(int id) {
 	float const w = 0.1f;
 	float const h = 0.1f;
@@ -456,10 +567,13 @@ int Gui::temperatureSensor(int id) {
 	Bitmap<TEMPERATURE_BITMAP_WIDTH, 16> bitmap;
 	bitmap.clear();
 	int temperature = ((widget->value >> 14) & 0x1ff);
+	bool changed = temperature != widget->lastValue;
+	widget->lastValue = temperature;
 	StringBuffer<8> buffer = dec(temperature / 10) + '.' + dec(temperature % 10) + " oC";
 	bitmap.drawText(2, 0, tahoma_8pt, buffer);
 
-	toDisplayBuffer(bitmap, this->displayBuffer);
+	// convert bitmap to 8 bit display buffer
+	convert(this->displayBuffer, bitmap);
 
 	// set state
 	this->displayRender->setState(this->x + w*0.15f, this->y + h*0.35f, w*0.7f, h*0.3f);
@@ -473,7 +587,8 @@ int Gui::temperatureSensor(int id) {
 
 	next(w, h);
 
-	return temperature;
+	// return temperature in 1/20 Kelvin when changed, else -1
+	return changed ? temperature * 2 + 27315 * 20 / 100 : -1;
 }
 
 void Gui::light(bool power, int percentage) {

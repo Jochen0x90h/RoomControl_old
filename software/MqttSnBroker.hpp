@@ -53,15 +53,26 @@ public:
 	bool isBrokerBusy() {return this->busy;}
 
 	/**
-	 * Register a topic at this broker and gateway. Registering at gateway succeeds if isBusy() returns false before calling registerTopic()
+	 * Register a topic at this broker and its gateway if connected.
+	 * @param topicId receives the topic id. Must be the same id if it was non-zero
 	 * @param topicName topic name (path without wildcards)
-	 * @return topic id and result of registering at gateway
+	 * @return result of registering the topic at the broker
 	 */
-	TopicResult registerTopic(String topicName);
+	Result registerTopic(uint16_t &topicId, String topicName);
+
+	/**
+	 * Unregister a topic from this broker (currently not supported)
+	 * @param topicId topic id to unregister, gets set to zero
+	 */
+	Result unregisterTopic(uint16_t &topicId) {
+		assert(topicId != 0);
+		topicId = 0;
+		return Result::OK;
+	}
 
 	/**
 	 * Publish a message on a topic
-	 * @param topicId id obtained using registerTopic()
+	 * @param topicId topic id obtained using registerTopic()
 	 * @param data payload data
 	 * @param length payload data length
 	 * @param qos quality of service: 0, 1, 2 or -1
@@ -80,20 +91,34 @@ public:
 	 * @param qos quality of service of the subscription, qos of a published message is minimum of publishing and subscription
 	 * @return topic id and result of registering at gateway
 	 */
-	TopicResult subscribeTopic(String topicFilter, int8_t qos);
+	//TopicResult subscribeTopic(String topicFilter, int8_t qos);
+	
+	/**
+	 * Subscribe to a topic at this broker and its gateway if connected. Multiple subscriptions to the same topic are
+	 * reference counted.
+	 * @param topicId receives the topic id. A new reference is counted if it was zero, otherwise it must be the same id
+	 * @param topic topic filter (path that may contain wildcards)
+	 * @param qos quality of service of the subscription, qos of a published message is minimum of publishing and subscription
+	 * @return result of subscribung to the topic at the broker
+	 */
+	Result subscribeTopic(uint16_t &topicId, String topicFilter, int8_t qos);
 
 	/**
 	 * Increment the reference counter of an existing subscription
 	 * @param topicId topic id of existing subscription. Nothing happens if topicId is zero
 	 */
-	void addSubscriptionReference(uint16_t topicId) {if (topicId != 0) ++getTopic(topicId).subscribeCount;}
+	void addSubscriptionReference(uint16_t topicId) {
+		if (topicId != 0)
+			++getTopic(topicId).subscribeCount;
+	}
 
 	/**
 	 * Unsubscribe from a topic.
+	 * @param topicId topic id, must match topicFilter, gets set to zero
 	 * @param topicFilter topic filter (path that may contain wildcards)
 	 * @return result containing success status and message id
 	 */
-	Result unsubscribeTopic(String topicFilter);
+	Result unsubscribeTopic(uint16_t &topicId, String topicFilter);
 
 protected:
 

@@ -43,7 +43,7 @@ struct String {
 	char const *const data;
 	int const length;
 
-	String()
+	constexpr String()
 		: data(), length(0)
 	{}
 
