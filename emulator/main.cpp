@@ -47,7 +47,7 @@ struct DeviceData {
 	};
 	
 	int componentCount;
-	Component components[8];
+	Component components[10];
 };
 
 // matches to emulated devices in Bus.cpp
@@ -61,14 +61,18 @@ constexpr DeviceData deviceData[] = {
 		{RoomControl::Device::Component::TIME_RELAY, 3, 0, 3s},
 		{RoomControl::Device::Component::RELAY, 4, 0}
 	}},
-	{0x00000002, "switch2", 6, {
+	{0x00000002, "switch2", 10, {
 		{RoomControl::Device::Component::ROCKER, 0, 0},
 		{RoomControl::Device::Component::BUTTON, 1, 0},
-		{RoomControl::Device::Component::HOLD_ROCKER, 2, 0, 2s},
-		{RoomControl::Device::Component::HOLD_BUTTON, 3, 0, 2s},
-		{RoomControl::Device::Component::BLIND, 4, 0, 6500ms},
-		{RoomControl::Device::Component::BLIND, 5, 0, 6500ms}}},
-	{0x00000003, "tempsensor", 1, {
+		{RoomControl::Device::Component::BLIND, 2, 0, 6500ms},
+		{RoomControl::Device::Component::HOLD_ROCKER, 3, 0, 2s},
+		{RoomControl::Device::Component::HOLD_BUTTON, 4, 0, 2s},
+		{RoomControl::Device::Component::BLIND, 5, 0, 6500ms},
+		{RoomControl::Device::Component::SWITCH, 5, 0},
+		{RoomControl::Device::Component::SWITCH, 5, 1},
+		{RoomControl::Device::Component::RELAY, 6, 0},
+		{RoomControl::Device::Component::RELAY, 7, 0}}},
+{0x00000003, "tempsensor", 1, {
 		{RoomControl::Device::Component::CELSIUS, 0, 0}}},
 };
 
@@ -78,9 +82,11 @@ constexpr String routeData[][2] = {
 	{"room/switch1/bt1", "room/switch1/rl2"},
 	{"room/switch1/sw0", "room/switch1/rl2"},
 	{"room/switch2/rk0", "room/switch2/bl0"},
-	{"room/switch2/rk1", "room/switch2/bl0"},
-	{"room/switch2/bt0", "room/switch2/bl1"},
-	{"room/switch2/bt1", "room/switch2/bl1"}
+	{"room/switch2/bt0", "room/switch2/bl0"},
+	{"room/switch2/rk1", "room/switch2/bl1"},
+	{"room/switch2/bt1", "room/switch2/bl1"},
+	{"room/switch2/sw0", "room/switch2/rl0"},
+	{"room/switch2/sw1", "room/switch2/rl1"},
 };
 
 struct TimerData {
@@ -88,8 +94,8 @@ struct TimerData {
 	String topic;
 };
 constexpr TimerData timerData[] = {
-	{makeClockTime(1, 10, 00), "room/00000001/x"},
-	{makeClockTime(2, 22, 41), "room/00000001/y0"}
+	{makeClockTime(1, 10, 00), "room/switch1/rl0"},
+	{makeClockTime(2, 22, 41), "room/switch1/rl1"}
 };
 
 
@@ -167,21 +173,15 @@ int main(int argc, const char **argv) {
 		device.setName(d.name);
 		
 		// add components
-		RoomControl::ComponentEditor editor(device, deviceState);
-		//int lastEndpointIndex = 0;
-		//int componentIndex = 0;
 		for (int i = 0; i < d.componentCount; ++i) {
 			auto &componentData = d.components[i];
 			auto type = componentData.type;
-			auto &component = editor.insert(type);
 
-			//auto endpointIndex = componentData.endpointIndex;
-			/*if (endpointIndex != lastEndpointIndex) {
-				lastEndpointIndex = endpointIndex;
-				componentIndex = 0;
-			}*/
+			RoomControl::ComponentEditor editor(device, deviceState, i);
+			auto &component = editor.insert(type);
+			++device.componentCount;
+			
 			component.endpointIndex = componentData.endpointIndex;
-			//component.componentIndex = componentIndex++;
 			component.nameIndex = device.getNameIndex(type, i);
 			component.elementIndex = componentData.elementIndex;
 			
@@ -189,18 +189,8 @@ int main(int argc, const char **argv) {
 				auto &timeComponent = component.cast<RoomControl::Device::TimeComponent>();
 				timeComponent.duration = componentData.duration;
 			}
-			
-			editor.next();
 		}
 		roomControl.devices.write(roomControl.devices.size(), &device);
-	
-		// debug print devices
-		auto e = roomControl.devices[roomControl.devices.size() - 1];
-		for (RoomControl::ComponentIterator it(*e.flash, *e.ram); !it.atEnd(); it.next()) {
-			auto &component = it.getComponent();
-			StringBuffer<8> b = component.getName();
-			std::cout << b << std::endl;
-		}
 	}
 	for (auto r : routeData) {
 		RoomControl::Route route = {};
@@ -210,15 +200,59 @@ int main(int argc, const char **argv) {
 	}
 	for (auto t : timerData) {
 		RoomControl::Timer timer = {};
+		RoomControl::TimerState timerState = {};
 		timer.time = t.time;
-		timer.commandCount = 1;
-		RoomControl::Command &command = timer.u.commands[0];
-		uint8_t *data = timer.begin();
-		command.type = RoomControl::Command::SWITCH;
-		data[0] = 1;
-		command.setTopic(t.topic, data + 1, timer.end());
+		
+		// add commands
+		{
+			RoomControl::CommandEditor editor(timer, timerState);
+			editor.insert();
+			editor.setTopic(t.topic);
+			editor.setValueType(RoomControl::Command::ValueType::SWITCH);
+			++timer.commandCount;
+			editor.next();
+		}
+		
 		roomControl.timers.write(roomControl.timers.size(), &timer);
 	}
+
+	// debug print devices
+	for (auto e : roomControl.devices) {
+		RoomControl::Device const &device = *e.flash;
+		RoomControl::DeviceState &deviceState = *e.ram;
+		std::cout << device.getName() << std::endl;
+		for (RoomControl::ComponentIterator it(device, deviceState); !it.atEnd(); it.next()) {
+			auto &component = it.getComponent();
+			StringBuffer<8> b = component.getName();
+			std::cout << "\t" << b << std::endl;
+		}
+	}
+
+	// debug print timers
+	for (auto e : roomControl.timers) {
+		RoomControl::Timer const &timer = *e.flash;
+		RoomControl::TimerState &timerState = *e.ram;
+		
+		int minutes = timer.time.getMinutes();
+		int hours = timer.time.getHours();
+		StringBuffer<16> b = dec(hours) + ':' + dec(minutes, 2);
+		std::cout << b << std::endl;
+		for (RoomControl::CommandIterator it(timer, timerState); !it.atEnd(); it.next()) {
+			auto &command = it.getCommand();
+			std::cout << "\t" << it.getTopic() << std::endl;
+			std::cout << "\t";
+			switch (command.valueType) {
+			case RoomControl::Command::ValueType::BUTTON:
+				std::cout << "BUTTON";
+				break;
+			case RoomControl::Command::ValueType::SWITCH:
+				std::cout << "SWITCH";
+				break;
+			}
+			std::cout << std::endl;
+		}
+	}
+
 	roomControl.subscribeAll();
 
 	// main loop

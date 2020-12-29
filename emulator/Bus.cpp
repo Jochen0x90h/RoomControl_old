@@ -3,32 +3,15 @@
 #include <iostream>
 
 
-/*
-struct DeviceInfo {
-	enum RelayType {
-		LIGHT,
-		BLIND
-	};
-	
-	RelayType relayType;
-};
-*/
-
 // list of emulated devices
 constexpr DeviceId deviceIds[] = {
 	0x00000001,
 	0x00000002,
 	0x00000003
 };
-/*
-constexpr DeviceInfo deviceInfos[] = {
-	{DeviceInfo::LIGHT},
-	{DeviceInfo::BLIND},
-	{DeviceInfo::LIGHT}
-};
-*/
+
 constexpr EndpointType device1Endpoints[] = {EndpointType::ROCKER, EndpointType::ROCKER, EndpointType::LIGHT, EndpointType::LIGHT, EndpointType::LIGHT};
-constexpr EndpointType device2Endpoints[] = {EndpointType::ROCKER, EndpointType::BUTTON, EndpointType::ROCKER, EndpointType::BUTTON, EndpointType::BLIND, EndpointType::BLIND};
+constexpr EndpointType device2Endpoints[] = {EndpointType::ROCKER, EndpointType::BUTTON, EndpointType::BLIND, EndpointType::ROCKER, EndpointType::BUTTON, EndpointType::BLIND, EndpointType::LIGHT, EndpointType::LIGHT};
 constexpr EndpointType device3Endpoints[] = {EndpointType::TEMPERATURE_SENSOR};
 
 Bus::Bus() {
@@ -104,10 +87,7 @@ void Bus::doGui(int &id) {
 
 	// iterate over devices
 	State *it = this->states;
-	for (int deviceIndex = 0; deviceIndex < array::size(deviceIds); ++deviceIndex) {
-		auto deviceId = deviceIds[deviceIndex];
-		//auto deviceInfo = deviceInfos[deviceIndex];
-		
+	for (auto deviceId : deviceIds) {
 		// iterate over endpoints of device
 		for (EndpointType type : getBusDeviceEndpoints(deviceId)) {
 			State &state = *it++;

@@ -6,7 +6,7 @@
 #include <cmath>
 
 
-float const MARGIN = 0.05f;
+float const MARGIN = 0.02f;
 
 int const TEMPERATURE_BITMAP_WIDTH = 40;
 

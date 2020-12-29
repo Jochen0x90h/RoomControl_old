@@ -2,16 +2,18 @@
 
 
 TopicBuffer &TopicBuffer::operator /=(String str) {
-	char *data = this->data + MAX_PREFIX_LENGTH;
-	if (this->index < MAX_TOPIC_LENGTH)
-		data[this->index++] = '/';
-	char *dst = data + this->index;
-	int l = min(str.length, MAX_TOPIC_LENGTH - this->index);
-	array::copy(dst, dst + l, str.begin());
-	#ifdef DEBUG
-	dst[l] = 0;
-	#endif
-	this->index += l;
+	if (!str.empty()) {
+		char *data = this->data + MAX_PREFIX_LENGTH;
+		if (this->index < MAX_TOPIC_LENGTH)
+			data[this->index++] = '/';
+		char *dst = data + this->index;
+		int l = min(str.length, MAX_TOPIC_LENGTH - this->index);
+		array::copy(dst, dst + l, str.begin());
+		#ifdef DEBUG
+		dst[l] = 0;
+		#endif
+		this->index += l;
+	}
 	return *this;
 }
 

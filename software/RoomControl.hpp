@@ -91,7 +91,7 @@ public:
 // ----
 
 	// menu state
-	enum State {
+	enum MenuState {
 		IDLE,
 		MAIN,
 		
@@ -125,7 +125,8 @@ public:
 	void updateMenu(int delta, bool activated);
 
 	// menu state
-	State state = IDLE;
+	MenuState menuState = IDLE;
+
 
 // Menu System
 // -----------
@@ -152,7 +153,7 @@ public:
 
 	//bool isAnyEditFinished() {return this->editFinished;}
 
-	void push(State state);
+	void push(MenuState menuState);
 	
 	void pop();
 	
@@ -175,7 +176,7 @@ public:
 	int yOffset = 0;
 	
 	// menu stack
-	struct StackEntry {State state; int selected; int selectedY; int yOffset;};
+	struct StackEntry {MenuState menuState; int selected; int selectedY; int yOffset;};
 	int stackIndex = 0;
 	StackEntry stack[6];
 	bool stackHasChanged = false;
@@ -299,7 +300,7 @@ public:
 			Plus<String, Dec<uint8_t>> getName() const;
 
 			// set first valid component type and clear data
-			void init(EndpointType endpointType/*, uint8_t endpointIndex, uint8_t componentIndex*/);
+			void init(EndpointType endpointType);
 
 			// rotate component type to the next valid type
 			void rotateType(EndpointType endpointType, int delta);
@@ -336,14 +337,13 @@ public:
 			}
 
 
-			// element type
+			// component type
 			Type type;
 
 			// index of device endpoint this component is connected to
 			uint8_t endpointIndex;
 			
 			// index of this component
-			//uint8_t componentIndex;
 			uint8_t nameIndex;
 			
 			// index of element, used e.g. by arrays of binary or ternary sensors
@@ -409,7 +409,8 @@ public:
 		// number of components of this device
 		uint8_t componentCount;
 				
-		// buffer contains the components
+		// buffer for components
+		// todo: check for buffer overflow (instead of MAX_COMPONENT_COUNT)
 		uint32_t buffer[BUFFER_SIZE / 4];
 	};
 	
@@ -507,77 +508,19 @@ public:
 		// topic id for list of attributes in device (topic: enum/<room>/<device>)
 		uint16_t deviceTopicId;
 
-		// buffer contains the components
+		// buffer for component states
 		uint32_t buffer[BUFFER_SIZE / 4];
-	};
-	
-	// iterator for device elements
-	struct ComponentIterator {
-		ComponentIterator(Device const &device, DeviceState &deviceState)
-			: device(device)
-			, flash(device.buffer)
-			, ram(deviceState.buffer)
-		{}
-		
-		Device::Component const &getComponent() const {
-			return *reinterpret_cast<Device::Component const *>(this->flash);
-		}
-
-		DeviceState::Component &getState() {
-			return *reinterpret_cast<DeviceState::Component *>(this->ram);
-		}
-
-		// returns true if a group of components that are associated to the same endpoint ends
-		bool next();
-
-		bool atEnd() {return this->componentIndex == this->device.componentCount;}
-
-		Device const &device;
-		int componentIndex = 0;
-		uint32_t const *flash;
-		uint32_t *ram;
-	};
-	
-	// editor for device elements
-	struct ComponentEditor {
-		ComponentEditor(Device &device, DeviceState &deviceState)
-			: device(device), deviceState(deviceState)
-			, flash(device.buffer)
-			, ram(deviceState.buffer)
-		{}
-		
-		Device::Component &getComponent() {
-			return *reinterpret_cast<Device::Component *>(this->flash);
-		}
-
-		DeviceState::Component &getState() {
-			return *reinterpret_cast<DeviceState::Component *>(this->ram);
-		}
-
-		Device::Component &insert(Device::Component::Type type);
-
-		void changeType(Device::Component::Type type);
-
-		void next();
-
-		bool atEnd() {return this->componentIndex == this->device.componentCount;}
-
-
-		Device &device;
-		DeviceState &deviceState;
-		int componentIndex = 0;
-		uint32_t *flash;
-		uint32_t *ram;
 	};
 	
 	// subscribe one device to mqtt topics
 	void subscribeDevice(int index);
 
-	// update time dependent state of devices (e.g. blind position)
-	SystemTime updateDevices(SystemTime time);
+	// update devices, handle time, endpoint events and topic events
+	SystemTime updateDevices(SystemTime time, uint8_t endpointId, uint8_t const *data,
+		uint16_t topicId, String message);
 
 	// check compatibility between device endpoint and device element
-	static bool isCompatible(EndpointType endpointType/*, int componentIndex*/, Device::Component::Type type);
+	static bool isCompatible(EndpointType endpointType, Device::Component::Type type);
 
 	// clone device and its state (subscribe command topics)
 	void clone(Device &dstDevice, DeviceState &dstDeviceState, Device const &srcDevice, DeviceState const &srcDeviceState);
@@ -594,6 +537,65 @@ public:
 	
 	// time of last update of changing values
 	SystemTime lastUpdateTime;
+
+
+// ComponentIterator
+// -----------------
+
+	// iterator for device elements
+	struct ComponentIterator {
+		ComponentIterator(Device const &device, DeviceState &state)
+			: componentCount(device.componentCount)
+			, component(device.buffer)
+			, state(state.buffer)
+		{}
+		
+		Device::Component const &getComponent() const {
+			return *reinterpret_cast<Device::Component const *>(this->component);
+		}
+
+		DeviceState::Component &getState() {
+			return *reinterpret_cast<DeviceState::Component *>(this->state);
+		}
+
+		void next();
+
+		bool atEnd() {return this->componentIndex == this->componentCount;}
+
+		int componentCount;
+		int componentIndex = 0;
+		uint32_t const *component;
+		uint32_t *state;
+	};
+
+
+// ComponentEditor
+// ---------------
+
+	// editor for device components
+	struct ComponentEditor {
+		ComponentEditor(Device &device, DeviceState &state, int index);
+		
+		Device::Component &getComponent() {
+			return *reinterpret_cast<Device::Component *>(this->component);
+		}
+
+		DeviceState::Component &getState() {
+			return *reinterpret_cast<DeviceState::Component *>(this->state);
+		}
+
+		Device::Component &insert(Device::Component::Type type);
+
+		void changeType(Device::Component::Type type);
+
+		void erase();
+
+
+		uint32_t *component;
+		uint32_t *componentsEnd;
+		uint32_t *state;
+		uint32_t *statesEnd;
+	};
 
 
 // Routes
@@ -649,7 +651,7 @@ public:
 	 * Contains an mqtt topic where to publish a value and the value itself, both are stored in an external data buffer
 	 */
 	struct Command {
-		enum Type : uint8_t {
+		enum class ValueType : uint8_t {
 			// button: pressed or release
 			BUTTON,
 			
@@ -658,46 +660,56 @@ public:
 
 			// rocker: up, down or release
 			ROCKER,			
-			
-			// 8 bit value, 0-255
-			VALUE8,
-			
+						
 			// 0-100%
 			PERCENTAGE,
 			
-			// room temperature 8°C - 33.5°C
-			TEMPERATURE,
+			// temperature in Celsius
+			CELSIUS,
 			
+			// temperature in Fahrenheit
+			FAHRENHEIT,
+
 			// color rgb
 			COLOR_RGB,
 
-			TYPE_COUNT,
+			// 8 bit value, 0-255
+			VALUE8,
 		};
 		
+		// rotate value type to the next type
+		void rotateValueType(int delta);
+
 		/**
 		 * Get the size of the value in bytes
 		 */
-		int getValueSize() const;
+		//int getValueSize() const;
 		
 		/**
 		 * Get the number of values (e.g. 3 for rgb color)
 		 */
-		int getValueCount() const;
+		//int getValueCount() const;
 		
-		int getFlashSize() const {return this->topicLength + getValueSize();}
+		//int getFlashSize() const {return this->topicLength + getValueSize();}
 		
-		void changeType(int delta, uint8_t *data, uint8_t *end);
+		//void changeType(int delta, uint8_t *data, uint8_t *end);
 				
-		void setTopic(String topic, uint8_t *data, uint8_t *end);
+		//void setTopic(String topic, uint8_t *data, uint8_t *end);
 		
-		// type of value that is published on the topic
-		Type type;
-
 		// length of topic where value gets published
 		uint8_t topicLength;
+
+		// type of value that is published on the topic
+		ValueType valueType;
 	};
 
-	void publishValue(uint16_t topicId, Command::Type type, uint8_t const *value);
+	struct CommandState {
+		// id of topic to publish to
+		uint16_t topicId;
+	};
+
+	// publish a command
+	void publishCommand(uint16_t topicId, Command::ValueType valueType, uint8_t const *value);
 
 
 // Timers
@@ -735,32 +747,36 @@ public:
 		/**
 		 * Begin of buffer behind the list of commands containing the value and topic
 		 */
-		uint8_t *begin() {return this->u.buffer + this->commandCount * sizeof(Command);}
-		uint8_t const *begin() const {return this->u.buffer + this->commandCount * sizeof(Command);}
+		//uint8_t *begin() {return this->u.buffer + this->commandCount * sizeof(Command);}
+		//uint8_t const *begin() const {return this->u.buffer + this->commandCount * sizeof(Command);}
 		
 		/**
 		 * End of buffer
 		 */
-		uint8_t *end() {return this->u.buffer + BUFFER_SIZE;}
+		//uint8_t *end() {return this->u.buffer + BUFFER_SIZE;}
 
 		// timer time and weekday flags
 		ClockTime time;
 	
 	
 		uint8_t commandCount;
-		union {
+		/*union {
 			// list of commands, overlaps with buffer
 			Command commands[MAX_COMMAND_COUNT];
 			
 			// buffer for commands, topics and values
 			uint8_t buffer[BUFFER_SIZE];
 		} u;
+		*/
+		uint8_t commands[BUFFER_SIZE];
 	};
 	
 	struct TimerState {
 		TimerState &operator =(const TimerState &) = delete;
 
-		uint16_t topicIds[Timer::MAX_COMMAND_COUNT];
+		//uint16_t topicIds[Timer::MAX_COMMAND_COUNT];
+		
+		CommandState commands[Timer::MAX_COMMAND_COUNT];
 	};
 	
 	// register timer mqtt topics
@@ -770,6 +786,94 @@ public:
 
 	Storage::Array<Timer, TimerState> timers;
 	using TimerElement = Storage::Element<Timer, TimerState>;
+
+
+// CommandIterator
+// ---------------
+
+	// iterator for commands
+	struct CommandIterator {
+		CommandIterator(Timer const &timer, TimerState &state)
+			: commandCount(timer.commandCount)
+			, command(timer.commands)
+			, state(state.commands)
+		{}
+		
+		Command const &getCommand() const {
+			return *reinterpret_cast<Command const *>(this->command);
+		}
+
+		CommandState &getState() {
+			return *this->state;
+		}
+
+		String getTopic() {
+			Command const &command = *reinterpret_cast<Command const *>(this->command);
+			return {this->command + sizeof(Command), command.topicLength};
+		}
+
+		uint8_t const *getValue() {
+			Command const &command = *reinterpret_cast<Command const *>(this->command);
+			return this->command + sizeof(Command) + command.topicLength;
+		}
+
+		void next();
+
+		bool atEnd() {return this->commandIndex == this->commandCount;}
+
+		int commandCount;
+		int commandIndex = 0;
+		uint8_t const *command;
+		CommandState *state;
+	};
+
+
+// CommandEditor
+// -------------
+
+	// editor for commands
+	struct CommandEditor {
+		CommandEditor(Timer &timer, TimerState &state)
+			: command(timer.commands), commandsEnd(array::end(timer.commands))
+			, state(state.commands), statesEnd(array::end(state.commands))
+		{}
+
+		CommandEditor(Timer &timer, TimerState &state, int index);
+
+		Command &getCommand() {
+			return *reinterpret_cast<Command *>(this->command);
+		}
+
+		CommandState &getState() {
+			return *this->state;
+		}
+
+		String getTopic() {
+			Command &command = *reinterpret_cast<Command *>(this->command);
+			return {this->command + sizeof(Command), command.topicLength};
+		}
+
+		void setTopic(String topic);
+
+		void setValueType(Command::ValueType valueType);
+		
+		uint8_t *getValue() {
+			Command &command = *reinterpret_cast<Command *>(this->command);
+			return this->command + sizeof(Command) + command.topicLength;
+		}
+
+		void insert();
+
+		void erase();
+
+		void next();
+
+
+		uint8_t *command;
+		uint8_t *commandsEnd;
+		CommandState *state;
+		CommandState *statesEnd;
+	};
 
 
 // Clock
@@ -813,5 +917,4 @@ public:
 	uint16_t topicDepth;
 	StringSet<64, 64 * 16> topicSet;
 	bool onlyCommands;
-
 };
